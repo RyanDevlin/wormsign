@@ -102,17 +102,53 @@ data:
       circuitBreaker:
         consecutiveFailures: {{ .Values.analyzer.circuitBreaker.consecutiveFailures }}
         openDuration: {{ .Values.analyzer.circuitBreaker.openDuration | quote }}
+      claude:
+        model: {{ .Values.analyzer.claude.model | quote }}
+        apiKeySecret:
+          name: {{ .Values.analyzer.claude.apiKeySecret.name | quote }}
+          key: {{ .Values.analyzer.claude.apiKeySecret.key | quote }}
+        maxTokens: {{ .Values.analyzer.claude.maxTokens }}
+        temperature: {{ .Values.analyzer.claude.temperature }}
+      claudeBedrock:
+        region: {{ .Values.analyzer.claudeBedrock.region | quote }}
+        modelId: {{ .Values.analyzer.claudeBedrock.modelId | quote }}
+      openai:
+        model: {{ .Values.analyzer.openai.model | quote }}
+        apiKeySecret:
+          name: {{ .Values.analyzer.openai.apiKeySecret.name | quote }}
+          key: {{ .Values.analyzer.openai.apiKeySecret.key | quote }}
+        maxTokens: {{ .Values.analyzer.openai.maxTokens }}
+        temperature: {{ .Values.analyzer.openai.temperature }}
+      azureOpenai:
+        {{- if .Values.analyzer.azureOpenai.endpoint }}
+        endpoint: {{ .Values.analyzer.azureOpenai.endpoint | quote }}
+        {{- end }}
+        {{- if .Values.analyzer.azureOpenai.deploymentName }}
+        deploymentName: {{ .Values.analyzer.azureOpenai.deploymentName | quote }}
+        {{- end }}
+        apiKeySecret:
+          name: {{ .Values.analyzer.azureOpenai.apiKeySecret.name | quote }}
+          key: {{ .Values.analyzer.azureOpenai.apiKeySecret.key | quote }}
 
     sinks:
       slack:
         enabled: {{ .Values.sinks.slack.enabled }}
+        webhookSecret:
+          name: {{ .Values.sinks.slack.webhookSecret.name | quote }}
+          key: {{ .Values.sinks.slack.webhookSecret.key | quote }}
         {{- if .Values.sinks.slack.channel }}
         channel: {{ .Values.sinks.slack.channel | quote }}
         {{- end }}
         severityFilter:
           {{- toYaml .Values.sinks.slack.severityFilter | nindent 10 }}
+        {{- if .Values.sinks.slack.templateOverride }}
+        templateOverride: {{ .Values.sinks.slack.templateOverride | quote }}
+        {{- end }}
       pagerduty:
         enabled: {{ .Values.sinks.pagerduty.enabled }}
+        routingKeySecret:
+          name: {{ .Values.sinks.pagerduty.routingKeySecret.name | quote }}
+          key: {{ .Values.sinks.pagerduty.routingKeySecret.key | quote }}
         severityFilter:
           {{- toYaml .Values.sinks.pagerduty.severityFilter | nindent 10 }}
       s3:
@@ -128,6 +164,10 @@ data:
         enabled: {{ .Values.sinks.webhook.enabled }}
         {{- if .Values.sinks.webhook.url }}
         url: {{ .Values.sinks.webhook.url | quote }}
+        {{- end }}
+        {{- if .Values.sinks.webhook.headers }}
+        headers:
+          {{- toYaml .Values.sinks.webhook.headers | nindent 10 }}
         {{- end }}
         severityFilter:
           {{- toYaml .Values.sinks.webhook.severityFilter | nindent 10 }}
