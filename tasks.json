@@ -95,7 +95,7 @@
       "Write unit tests verifying metric registration and label validation",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "done"
   },
   {
     "id": "implement-health",
