@@ -239,7 +239,7 @@
       "Write unit tests for trigger matching, concurrent execution, error handling (failed gatherer populates Error field)",
       "Verify tests pass"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 1
   },
   {
