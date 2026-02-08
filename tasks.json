@@ -203,7 +203,7 @@
       "Write unit tests: valid CEL expressions, invalid expressions (compilation error), cost budget exceeded, params usage, namespace selector matching",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
