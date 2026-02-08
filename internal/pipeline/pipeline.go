@@ -413,28 +413,15 @@ func (p *Pipeline) drainStageWithTimeout(q interface{ Len() int; ShutDown() }, s
 	}
 }
 
-// drainAnalysisWithTimeout waits for the priority analysis queue to drain.
+// drainAnalysisWithTimeout waits for the priority analysis queue to drain
+// all pending and in-flight items.
 func (p *Pipeline) drainAnalysisWithTimeout(timeout time.Duration) {
-	done := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			if p.queues.Analysis.Len() == 0 {
-				close(done)
-				return
-			}
-			<-ticker.C
-		}
-	}()
-
-	select {
-	case <-done:
+	if p.queues.Analysis.WaitForDrain(timeout) {
 		p.logger.Info("analysis stage drained successfully")
-	case <-time.After(timeout):
-		remaining := p.queues.Analysis.Len()
+	} else {
 		p.logger.Warn("analysis drain timed out, shutting down with items remaining",
-			"remaining", remaining,
+			"pending", p.queues.Analysis.Len(),
+			"in_flight", p.queues.Analysis.InFlight(),
 		)
 	}
 }

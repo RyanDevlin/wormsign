@@ -285,6 +285,37 @@ func (pq *PriorityQueue) Drain() []AnalysisItem {
 	return items
 }
 
+// InFlight returns the number of items currently being processed (retrieved
+// via Get but not yet marked Done).
+func (pq *PriorityQueue) InFlight() int {
+	pq.mu.Lock()
+	defer pq.mu.Unlock()
+	return pq.inflight
+}
+
+// WaitForDrain blocks until the queue is empty AND all in-flight items have
+// called Done, or until the timeout elapses. Returns true if fully drained.
+// This is the correct method to use during graceful shutdown: it ensures
+// both pending and in-progress items are complete.
+func (pq *PriorityQueue) WaitForDrain(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		pq.mu.Lock()
+		defer pq.mu.Unlock()
+		for pq.inflight > 0 || pq.totalLen() > 0 {
+			pq.cond.Wait()
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
 // WaitForInflight blocks until all in-flight items have called Done, or
 // until the timeout elapses. Returns true if all items completed.
 func (pq *PriorityQueue) WaitForInflight(timeout time.Duration) bool {
