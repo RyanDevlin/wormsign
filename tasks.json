@@ -726,7 +726,7 @@
       "Write unit tests for queue operations, priority ordering, full pipeline flow",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-shard-manager",
