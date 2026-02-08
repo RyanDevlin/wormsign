@@ -43,7 +43,7 @@
       "Create api/v1alpha1/register.go with SchemeBuilder, AddToScheme, and GroupVersion registration",
       "Verify all types compile"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "codegen-deepcopy-crds",
