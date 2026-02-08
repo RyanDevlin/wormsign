@@ -741,7 +741,8 @@
       "Write unit tests for hashing stability, rebalance minimality, single-replica path",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "fix-implement-crd-watchers",
