@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 func silentLogger() *slog.Logger {
@@ -614,5 +616,227 @@ func TestRedact_RealisticKubernetesLogs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- RedactEnvVars tests ---
+
+func TestRedactEnvVars_SecretSourcedRedacted(t *testing.T) {
+	r, err := New(nil, WithLogger(silentLogger()))
+	if err != nil {
+		t.Fatalf("failed to create redactor: %v", err)
+	}
+
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "DB_PASSWORD",
+			Value: "should-be-ignored-since-valueFrom-is-set",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "db-secrets"},
+					Key:                  "password",
+				},
+			},
+		},
+		{
+			Name: "API_TOKEN",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "api-secrets"},
+					Key:                  "token",
+				},
+			},
+		},
+	}
+
+	result := r.RedactEnvVars(envVars)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(result))
+	}
+	for _, ev := range result {
+		if ev.Value != Placeholder {
+			t.Errorf("env var %q: expected value %q, got %q", ev.Name, Placeholder, ev.Value)
+		}
+	}
+}
+
+func TestRedactEnvVars_ConfigMapSourcedNotRedacted(t *testing.T) {
+	r, err := New(nil, WithLogger(silentLogger()))
+	if err != nil {
+		t.Fatalf("failed to create redactor: %v", err)
+	}
+
+	envVars := []corev1.EnvVar{
+		{
+			Name: "CONFIG_VALUE",
+			ValueFrom: &corev1.EnvVarSource{
+				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "app-config"},
+					Key:                  "log-level",
+				},
+			},
+		},
+	}
+
+	result := r.RedactEnvVars(envVars)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 env var, got %d", len(result))
+	}
+	// ConfigMap-sourced env vars should not have their (empty) value changed.
+	if result[0].Value != "" {
+		t.Errorf("expected empty value for ConfigMap-sourced env var, got %q", result[0].Value)
+	}
+}
+
+func TestRedactEnvVars_PlainValuePatternRedacted(t *testing.T) {
+	r, err := New(nil, WithLogger(silentLogger()))
+	if err != nil {
+		t.Fatalf("failed to create redactor: %v", err)
+	}
+
+	envVars := []corev1.EnvVar{
+		{
+			Name:  "AUTH_HEADER",
+			Value: "Bearer eyJhbGciOiJSUzI1NiJ9.payload.sig",
+		},
+		{
+			Name:  "AWS_KEY",
+			Value: "AKIAIOSFODNN7EXAMPLE",
+		},
+	}
+
+	result := r.RedactEnvVars(envVars)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(result))
+	}
+	if strings.Contains(result[0].Value, "eyJhbGciOiJSUzI1NiJ9") {
+		t.Errorf("bearer token should be redacted in AUTH_HEADER value: %q", result[0].Value)
+	}
+	if strings.Contains(result[1].Value, "AKIAIOSFODNN7EXAMPLE") {
+		t.Errorf("AWS key should be redacted in AWS_KEY value: %q", result[1].Value)
+	}
+}
+
+func TestRedactEnvVars_PlainValueNoMatch(t *testing.T) {
+	r, err := New(nil, WithLogger(silentLogger()))
+	if err != nil {
+		t.Fatalf("failed to create redactor: %v", err)
+	}
+
+	envVars := []corev1.EnvVar{
+		{Name: "DB_HOST", Value: "postgres.svc.cluster.local"},
+		{Name: "REPLICAS", Value: "3"},
+		{Name: "LOG_LEVEL", Value: "info"},
+	}
+
+	result := r.RedactEnvVars(envVars)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 env vars, got %d", len(result))
+	}
+	for i, ev := range result {
+		if ev.Value != envVars[i].Value {
+			t.Errorf("env var %q: expected value %q, got %q", ev.Name, envVars[i].Value, ev.Value)
+		}
+	}
+}
+
+func TestRedactEnvVars_EmptySlice(t *testing.T) {
+	r, err := New(nil, WithLogger(silentLogger()))
+	if err != nil {
+		t.Fatalf("failed to create redactor: %v", err)
+	}
+
+	result := r.RedactEnvVars(nil)
+	if result != nil {
+		t.Errorf("expected nil for nil input, got %v", result)
+	}
+
+	result = r.RedactEnvVars([]corev1.EnvVar{})
+	if result != nil {
+		t.Errorf("expected nil for empty input, got %v", result)
+	}
+}
+
+func TestRedactEnvVars_MixedSources(t *testing.T) {
+	r, err := New(nil, WithLogger(silentLogger()))
+	if err != nil {
+		t.Fatalf("failed to create redactor: %v", err)
+	}
+
+	envVars := []corev1.EnvVar{
+		{Name: "NORMAL", Value: "hello"},
+		{
+			Name: "SECRET_VAL",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "my-secret"},
+					Key:                  "key",
+				},
+			},
+		},
+		{Name: "SENSITIVE_LOG", Value: "password=hunter2"},
+		{
+			Name: "FROM_FIELD",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "metadata.name",
+				},
+			},
+		},
+	}
+
+	result := r.RedactEnvVars(envVars)
+	if len(result) != 4 {
+		t.Fatalf("expected 4 env vars, got %d", len(result))
+	}
+
+	// NORMAL: unchanged
+	if result[0].Value != "hello" {
+		t.Errorf("NORMAL: expected %q, got %q", "hello", result[0].Value)
+	}
+
+	// SECRET_VAL: redacted because SecretKeyRef
+	if result[1].Value != Placeholder {
+		t.Errorf("SECRET_VAL: expected %q, got %q", Placeholder, result[1].Value)
+	}
+
+	// SENSITIVE_LOG: pattern-redacted
+	if strings.Contains(result[2].Value, "hunter2") {
+		t.Errorf("SENSITIVE_LOG: password should be redacted, got %q", result[2].Value)
+	}
+
+	// FROM_FIELD: unchanged (fieldRef, empty value)
+	if result[3].Value != "" {
+		t.Errorf("FROM_FIELD: expected empty value, got %q", result[3].Value)
+	}
+}
+
+func TestRedactEnvVars_DoesNotMutateInput(t *testing.T) {
+	r, err := New(nil, WithLogger(silentLogger()))
+	if err != nil {
+		t.Fatalf("failed to create redactor: %v", err)
+	}
+
+	original := []corev1.EnvVar{
+		{
+			Name: "SECRET_DB",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "db"},
+					Key:                  "pass",
+				},
+			},
+		},
+		{Name: "TOKEN", Value: "Bearer mytoken123"},
+	}
+
+	_ = r.RedactEnvVars(original)
+
+	// Verify original is not mutated.
+	if original[0].Value != "" {
+		t.Errorf("original SECRET_DB value was mutated to %q", original[0].Value)
+	}
+	if original[1].Value != "Bearer mytoken123" {
+		t.Errorf("original TOKEN value was mutated to %q", original[1].Value)
 	}
 }

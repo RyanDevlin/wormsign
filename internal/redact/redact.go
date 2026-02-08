@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Placeholder is the string that replaces matched sensitive data.
@@ -170,4 +172,35 @@ func (r *Redactor) PatternCount() int {
 // DefaultPatternCount returns the number of built-in default patterns.
 func DefaultPatternCount() int {
 	return len(defaultPatterns)
+}
+
+// RedactEnvVars returns a copy of the given environment variables with values
+// redacted for any variable that is sourced from a Kubernetes Secret. A variable
+// is considered Secret-sourced if its ValueFrom field references a
+// SecretKeyRef. Plain-value env vars and those sourced from ConfigMaps,
+// field refs, or resource field refs are returned unchanged.
+//
+// Additionally, all env var values (regardless of source) are passed through
+// the Redactor's pattern-based redaction to catch inline secrets.
+func (r *Redactor) RedactEnvVars(envVars []corev1.EnvVar) []corev1.EnvVar {
+	if len(envVars) == 0 {
+		return nil
+	}
+
+	result := make([]corev1.EnvVar, len(envVars))
+	for i, ev := range envVars {
+		result[i] = *ev.DeepCopy()
+
+		// If the env var is sourced from a Secret, redact the value entirely.
+		if ev.ValueFrom != nil && ev.ValueFrom.SecretKeyRef != nil {
+			result[i].Value = Placeholder
+			continue
+		}
+
+		// For all other env vars, apply pattern-based redaction to the value.
+		if ev.Value != "" {
+			result[i].Value = r.Redact(ev.Value)
+		}
+	}
+	return result
 }
