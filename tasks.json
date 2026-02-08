@@ -276,7 +276,7 @@
       "Write unit tests for: noop analyzer, circuit breaker state transitions, rate limiter budget tracking, prompt construction, response validation and fallback",
       "Verify tests pass"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 1
   },
   {
