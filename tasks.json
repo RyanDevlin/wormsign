@@ -787,7 +787,7 @@
       "Instantiate and start Controller, block until shutdown signal",
       "Verify go build ./cmd/controller/ produces a working binary"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 2
   },
   {
