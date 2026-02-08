@@ -74,7 +74,7 @@
       "Write unit tests: loading valid config, loading with defaults, validation failures for each invalid case",
       "Verify tests pass"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 1
   },
   {
