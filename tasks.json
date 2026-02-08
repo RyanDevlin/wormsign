@@ -534,5 +534,286 @@
       "Verify the graceful shutdown order matches Section 2.6"
     ],
     "status": "failed"
+  },
+  {
+    "id": "fix-setup-project-deps",
+    "description": "Complete project setup: add missing core dependencies (client-go, cel-go, aws-sdk-go-v2) to go.mod and create cmd/controller/main.go stub.",
+    "steps": [
+      "Add k8s.io/client-go v0.30+ to go.mod (currently missing; required for informers, leader election, workqueues)",
+      "Add github.com/google/cel-go v0.20+ to go.mod (required for CEL custom detectors)",
+      "Add github.com/aws/aws-sdk-go-v2 to go.mod (required for Bedrock and S3 sinks)",
+      "Add golang.org/x/sync (required for errgroup in concurrent gatherers)",
+      "Add gopkg.in/yaml.v3 (required for config loading)",
+      "Create cmd/controller/main.go with package main and a minimal main() func that compiles",
+      "Create test/ and test/e2e/ and test/fixtures/ directories",
+      "Run go mod tidy && go build ./... to verify"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-config",
+    "description": "Implement the configuration system (internal/config/) with Config struct mirroring values.yaml, YAML loading, defaults, and validation.",
+    "steps": [
+      "Create internal/config/config.go with Config struct and all sub-structs matching Section 10 values.yaml",
+      "Create internal/config/defaults.go returning Config with all default values from Section 10",
+      "Create internal/config/load.go with LoadFromFile(path) (*Config, error) using YAML unmarshaling",
+      "Create internal/config/validate.go with Validate() that checks required fields, valid durations, valid severity values, valid analyzer backend names, valid regex patterns",
+      "Write unit tests for loading, defaults, and validation edge cases",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-redact",
+    "description": "Implement the redaction engine (internal/redact/) with default patterns for Bearer tokens, AWS keys, passwords, and configurable user patterns.",
+    "steps": [
+      "Create internal/redact/redact.go with Redactor struct",
+      "Implement default patterns: Bearer tokens, basic auth headers, AWS access keys (AKIA...), common passwords",
+      "Support configurable additional patterns from config",
+      "Implement Redact(string) string replacing matches with [REDACTED]",
+      "Compile regex patterns once at construction time, return error for invalid patterns",
+      "Write unit tests covering default patterns, custom patterns, edge cases",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-filter-engine-tests",
+    "description": "Add comprehensive unit tests for the existing filter engine implementation (internal/filter/engine.go has no tests).",
+    "steps": [
+      "Create internal/filter/engine_test.go",
+      "Test each of the 9 filter evaluation levels individually",
+      "Test short-circuit behavior (early match stops evaluation)",
+      "Test WormsignPolicy Suppress with time window schedule",
+      "Test namespace annotation wormsign.io/suppress",
+      "Test resource and owner annotation exclude checks",
+      "Test per-detector exclusion via comma-separated exclude-detectors annotations",
+      "Test WormsignPolicy Exclude with resourceSelector and ownerNames glob patterns",
+      "Test FilterResult reason strings match spec (namespace_global, namespace_label, etc.)",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-detector-framework",
+    "description": "Implement the detector interface, base detector with cooldown/dedup, and all 7 built-in detectors.",
+    "steps": [
+      "Create internal/detector/detector.go with Detector interface: Name(), Start(ctx), Stop(), Severity()",
+      "Create internal/detector/base.go with BaseDetector struct providing cooldown and (DetectorName, Resource.UID) deduplication",
+      "Create internal/detector/registry.go with DetectorRegistry",
+      "Implement PodStuckPending detector (Pending > threshold, default 15m)",
+      "Implement PodCrashLoop detector (CrashLoopBackOff with restart count > threshold, default 3)",
+      "Implement PodFailed detector (Failed phase or non-zero exit, respecting ignoreExitCodes)",
+      "Implement NodeNotReady detector (Ready=False/Unknown > threshold, default 5m, leader-only)",
+      "Implement PVCStuckBinding detector (Pending > threshold, default 10m)",
+      "Implement HighPodCount detector (namespace pod count > threshold, default 200)",
+      "Implement JobDeadlineExceeded detector (activeDeadlineSeconds reached)",
+      "Write table-driven unit tests for each detector trigger condition and edge cases",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-cel-engine",
+    "description": "Implement the CEL-based custom detector engine (internal/detector/cel/) for evaluating WormsignDetector CRDs.",
+    "steps": [
+      "Create internal/detector/cel/engine.go with CELDetectorEngine struct",
+      "Set up CEL environment: resource variable, now(), duration(), timestamp(), params map",
+      "Implement expression compilation with cost budget (default 1000 CEL cost units)",
+      "Implement expression evaluation against Kubernetes resource objects",
+      "Implement namespace selector matching for cross-namespace detectors",
+      "Handle CRD lifecycle: load on create/update, unload on delete",
+      "Update CRD status conditions (Ready, Active) based on compilation success",
+      "Write unit tests for valid/invalid expressions, cost budget, params, namespace matching",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-correlator",
+    "description": "Implement the pre-LLM event correlation engine (internal/pipeline/correlator/) with 4 built-in rules.",
+    "steps": [
+      "Create internal/pipeline/correlator/correlator.go with Correlator struct",
+      "Implement time-windowed event buffering (configurable window, default 2m)",
+      "Implement NodeCascade rule: NodeNotReady + >=N pod failures on same node",
+      "Implement DeploymentRollout rule: >=N pods from same Deployment fail",
+      "Implement StorageCascade rule: PVCStuckBinding + pod failures referencing PVC",
+      "Implement NamespaceStorm rule: >N events in same namespace when no other rule matched",
+      "Emit SuperEvents for correlated groups, pass-through uncorrelated events",
+      "Implement flush on shutdown (drain pending events)",
+      "Write unit tests for each rule, window expiry, edge cases",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-gatherer-framework",
+    "description": "Implement gatherer interface, registry, concurrent execution, and all 9 built-in gatherers.",
+    "steps": [
+      "Create internal/gatherer/gatherer.go with Gatherer interface: Name(), Gather(ctx, event) ([]DiagnosticSection, error)",
+      "Create internal/gatherer/registry.go with GathererRegistry and trigger matching",
+      "Implement concurrent gatherer execution using errgroup",
+      "Implement SuperEvent gathering: primary resource + up to maxAffectedResources sample",
+      "Create internal/gatherer/custom.go for WormsignGatherer CRD evaluation with template variables",
+      "Implement PodDescribe, PodEvents, PodLogs, NodeConditions, PVCStatus gatherers",
+      "Implement KarpenterState, NamespaceEvents, ReplicaSetStatus, OwnerChain gatherers",
+      "Ensure all gatherers redact Secret values using the redaction engine",
+      "Write unit tests using fake client-go clients for each gatherer",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-analyzer-framework",
+    "description": "Implement analyzer interface, noop analyzer, circuit breaker, rate limiter, prompt system, and response validation.",
+    "steps": [
+      "Create internal/analyzer/analyzer.go with Analyzer interface: Name(), Analyze(ctx, bundle) (*RCAReport, error), Healthy(ctx) bool",
+      "Create internal/analyzer/noop.go: passes DiagnosticBundle through without LLM",
+      "Create internal/analyzer/circuit_breaker.go: closed -> open -> half-open -> closed state machine",
+      "Create internal/analyzer/rate_limiter.go: daily/hourly token budget tracking with noop fallback",
+      "Create internal/analyzer/prompt/system_prompt.go: embed the default system prompt from spec Section 5.3.4",
+      "Create internal/analyzer/prompt/builder.go: prompt construction combining system prompt + append + bundle formatting",
+      "Implement LLM response validation: JSON parsing, markdown fence extraction, fallback report (Section 5.3.5)",
+      "Write unit tests for noop, circuit breaker transitions, rate limiter, prompt construction, response parsing",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-llm-backends",
+    "description": "Implement 4 LLM backend analyzers: Claude direct, Claude Bedrock, OpenAI, Azure OpenAI.",
+    "steps": [
+      "Create internal/analyzer/claude.go using Anthropic Messages API (model, maxTokens, temperature)",
+      "Create internal/analyzer/claude_bedrock.go using AWS Bedrock InvokeModel with IRSA",
+      "Create internal/analyzer/openai.go using OpenAI Chat Completions API",
+      "Create internal/analyzer/azure_openai.go using Azure OpenAI endpoint",
+      "Each backend reads API keys from Kubernetes Secrets via secretRef",
+      "Each backend reports TokenUsage and wraps calls with circuit breaker + rate limiter",
+      "Implement Healthy() check for each backend",
+      "Write unit tests with mock HTTP servers for canned LLM responses",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-sink-framework",
+    "description": "Implement sink interface, log sink, retry logic, SSRF protection, and all 5 external built-in sinks.",
+    "steps": [
+      "Create internal/sink/sink.go with Sink interface: Name(), Deliver(ctx, *RCAReport) error, SeverityFilter() []Severity",
+      "Create internal/sink/registry.go with SinkRegistry",
+      "Create internal/sink/log.go: structured JSON log sink (always enabled)",
+      "Implement severity filter evaluation and retry logic (3 attempts, exponential backoff 1s/5s/25s)",
+      "Implement SSRF protection: validate webhook URLs against allowedDomains config",
+      "Create internal/sink/slack.go, pagerduty.go, s3.go, webhook.go, kubernetes_event.go",
+      "Create internal/sink/custom_webhook.go for WormsignSink CRD evaluation with Go text/template",
+      "Write unit tests for each sink using mock HTTP servers and fake clients",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-pipeline",
+    "description": "Implement pipeline work queues and orchestrator wiring detect -> correlate -> gather -> analyze -> sink.",
+    "steps": [
+      "Create internal/pipeline/queue/queues.go with per-stage work queues (client-go workqueue)",
+      "Implement severity-based priority for analysis queue (critical first)",
+      "Implement configurable worker counts per stage (gathering:5, analysis:2, sink:3)",
+      "Expose queue depth via wormsign_pipeline_queue_depth metric",
+      "Create internal/pipeline/pipeline.go with Pipeline struct owning all stages and workers",
+      "Implement detection, correlation, gathering, analysis, sink workers",
+      "Wire filter engine into detection stage",
+      "Implement Start(ctx) and Stop() lifecycle with graceful drain and per-stage timeouts",
+      "Write unit tests for queue operations, priority ordering, full pipeline flow",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-shard-manager",
+    "description": "Implement namespace shard manager (internal/shard/) with consistent hashing and ConfigMap coordination.",
+    "steps": [
+      "Create internal/shard/manager.go with ShardManager struct",
+      "Implement consistent hashing (jump hash) on namespace names for shard assignment",
+      "Implement shard map storage/watching via ConfigMap wormsign-shard-map",
+      "Implement coordinator logic (leader only) for shard assignment and rebalancing",
+      "Implement single-replica mode (all namespaces to single replica)",
+      "Implement informer lifecycle: tear down/create informers on shard changes",
+      "Write unit tests for hashing stability, rebalance minimality, single-replica path",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-crd-watchers",
+    "description": "Implement CRD watchers (internal/config/crd_watcher.go) for runtime loading/unloading of custom detectors, gatherers, sinks, and policies.",
+    "steps": [
+      "Create internal/config/crd_watcher.go with CRDWatcher struct watching all 4 Wormsign CRD types",
+      "Implement WormsignDetector watcher: compile CEL on create/update, unregister on delete",
+      "Implement WormsignGatherer watcher: validate collect sections, register/unregister",
+      "Implement WormsignSink watcher: validate template, register/unregister",
+      "Implement WormsignPolicy watcher: register/unregister in filter engine",
+      "On invalid CRD, set status.conditions[Ready]=False with descriptive message; keep previous valid config",
+      "Write unit tests for CRD lifecycle and invalid CRD handling",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-controller-lifecycle",
+    "description": "Implement the controller lifecycle (internal/controller/) including leader election, informer management, and graceful shutdown.",
+    "steps": [
+      "Create internal/controller/leader.go with leader election using client-go leaderelection package",
+      "Configure Lease wormsign-leader with timing from spec (15s/10s/2s)",
+      "Implement OnStartedLeading (cluster-scoped detectors, shard coordinator) and OnStoppedLeading callbacks",
+      "Create internal/controller/controller.go with Controller struct owning all subsystems",
+      "Implement Start(): load config, validate, create informers (metadata-only for pods, full for rest), start leader election, start pipeline, health server, metrics server",
+      "Implement graceful shutdown per Section 2.6: ordered stop with per-stage timeouts (total 120s max)",
+      "Wire all subsystems together",
+      "Write unit tests for startup sequence and shutdown ordering",
+      "Verify tests pass"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-main-entrypoint",
+    "description": "Implement cmd/controller/main.go with signal handling, config loading, slog initialization, and controller startup.",
+    "steps": [
+      "Implement cmd/controller/main.go with signal handling (SIGTERM, SIGINT)",
+      "Load config from file path (default /etc/wormsign/config.yaml) or env var",
+      "Initialize slog with JSON format and configurable level",
+      "Create Kubernetes client from in-cluster config or kubeconfig flag",
+      "Instantiate and start Controller, block until shutdown signal",
+      "Verify go build ./cmd/controller/ produces a working binary"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-implement-helm-chart",
+    "description": "Create the complete Helm chart with Chart.yaml, values.yaml, and all templates (deployment, RBAC, configmap, service, servicemonitor).",
+    "steps": [
+      "Create deploy/helm/wormsign/Chart.yaml with chart metadata",
+      "Create deploy/helm/wormsign/values.yaml with complete defaults from Section 10",
+      "Create deploy/helm/wormsign/templates/_helpers.tpl with standard Helm helpers",
+      "Create deployment.yaml (terminationGracePeriodSeconds: 150), serviceaccount.yaml",
+      "Create clusterrole.yaml with all RBAC from Section 7.2, clusterrolebinding.yaml",
+      "Create configmap.yaml, service.yaml, servicemonitor.yaml (gated by metrics.serviceMonitor.enabled)",
+      "Verify helm lint passes and helm template renders valid YAML"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "fix-add-comprehensive-tests",
+    "description": "Add unit tests across all new packages to reach 80%+ coverage and create integration test scaffolding.",
+    "steps": [
+      "Review coverage across all internal/ packages with go test -cover",
+      "Add missing tests for each package to reach 80%+ coverage",
+      "Ensure table-driven tests for every built-in detector trigger condition and edge case",
+      "Set up test/e2e/ with envtest-based test suite for integration tests",
+      "Create test/fixtures/ with sample CRDs and test resources",
+      "Write key integration tests: PodCrashLoop pipeline, filter exclusion, NodeCascade correlation",
+      "Run go test ./... -race and verify all pass",
+      "Run go test ./... -cover and verify 80%+ for internal/"
+    ],
+    "status": "pending"
   }
 ]
