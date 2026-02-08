@@ -494,8 +494,8 @@
       "Run go test ./... and verify 80%+ coverage for internal/",
       "Fix any failing tests"
     ],
-    "status": "in_progress",
-    "retry_count": 1
+    "status": "pending",
+    "retry_count": 2
   },
   {
     "id": "security-audit",
