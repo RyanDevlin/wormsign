@@ -721,7 +721,7 @@
       "Write unit tests with mock HTTP servers for canned LLM responses",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-sink-framework",
