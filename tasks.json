@@ -418,7 +418,7 @@
       "Write unit tests for leader election callbacks and metric updates",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
