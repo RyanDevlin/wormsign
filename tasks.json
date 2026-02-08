@@ -313,7 +313,7 @@
       "Write unit tests for: log sink output, severity filtering, retry logic, SSRF domain validation, template rendering",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
