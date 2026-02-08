@@ -575,7 +575,7 @@
       "Write unit tests covering default patterns, custom patterns, edge cases",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-filter-engine-tests",
