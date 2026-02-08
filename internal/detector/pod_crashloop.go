@@ -103,7 +103,10 @@ func (d *PodCrashLoop) Stop() {
 // any container is in CrashLoopBackOff with restarts exceeding the threshold.
 // Returns true if an event was emitted.
 func (d *PodCrashLoop) Check(pod PodContainerState) bool {
-	allStatuses := append(pod.ContainerStatuses, pod.InitContainerStatuses...)
+	// Build a combined list without mutating the input slices.
+	allStatuses := make([]ContainerStatus, 0, len(pod.ContainerStatuses)+len(pod.InitContainerStatuses))
+	allStatuses = append(allStatuses, pod.ContainerStatuses...)
+	allStatuses = append(allStatuses, pod.InitContainerStatuses...)
 
 	for _, cs := range allStatuses {
 		if !d.isCrashLooping(cs) {
