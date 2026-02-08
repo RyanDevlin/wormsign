@@ -7,5 +7,6 @@
 // All CRDs are namespaced and include a status subresource with standardized
 // conditions (Ready, Valid, Active).
 //
+// +kubebuilder:object:generate=true
 // +groupName=wormsign.io
 package v1alpha1
