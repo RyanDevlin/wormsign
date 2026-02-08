@@ -44,7 +44,7 @@
       "Create api/v1alpha1/register.go with SchemeBuilder, AddToScheme, and GroupVersion registration",
       "Verify all types compile"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
