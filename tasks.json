@@ -161,7 +161,7 @@
       "Write unit tests for cooldown behavior, deduplication, and registry operations",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-builtin-detectors",
@@ -249,7 +249,7 @@
       "Write unit tests for each gatherer using fake client-go clients",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-analyzer-interface",
@@ -510,7 +510,7 @@
       "Write test: Invalid CRD (bad CEL expression) sets status.conditions[Ready]=False",
       "Verify all integration tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "final-validation",
