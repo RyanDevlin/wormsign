@@ -350,7 +350,7 @@
       "Write unit tests: full pipeline flow with mock detectors/gatherers/analyzers/sinks",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "implement-shard-manager",
