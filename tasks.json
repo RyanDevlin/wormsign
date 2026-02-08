@@ -185,7 +185,7 @@
       "Test that disabled detectors don't fire, cooldown is respected, and exit code filtering works",
       "Verify all tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
