@@ -490,7 +490,7 @@
       "Fix any issues found",
       "Create SECURITY_REVIEW.md documenting the review findings and any remediations applied"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "integration-tests",
