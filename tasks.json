@@ -146,7 +146,7 @@
       "Write unit tests for each filter level and short-circuit behavior",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "implement-detector-interface",
