@@ -12,23 +12,23 @@ import (
 	v1alpha1 "github.com/k8s-wormsign/k8s-wormsign/api/v1alpha1"
 )
 
-// SecretResolver resolves SecretReference values by reading Kubernetes Secrets.
+// KubeSecretResolver resolves SecretReference values by reading Kubernetes Secrets.
 // It is used to resolve webhook URLs and header values that reference secrets.
-type SecretResolver struct {
+type KubeSecretResolver struct {
 	clientset kubernetes.Interface
 	logger    *slog.Logger
 }
 
-// NewSecretResolver creates a new SecretResolver. Both clientset and logger
+// NewKubeSecretResolver creates a new KubeSecretResolver. Both clientset and logger
 // are required.
-func NewSecretResolver(clientset kubernetes.Interface, logger *slog.Logger) (*SecretResolver, error) {
+func NewKubeSecretResolver(clientset kubernetes.Interface, logger *slog.Logger) (*KubeSecretResolver, error) {
 	if clientset == nil {
 		return nil, fmt.Errorf("secret resolver: clientset must not be nil")
 	}
 	if logger == nil {
 		return nil, errNilLogger
 	}
-	return &SecretResolver{
+	return &KubeSecretResolver{
 		clientset: clientset,
 		logger:    logger,
 	}, nil
@@ -37,7 +37,7 @@ func NewSecretResolver(clientset kubernetes.Interface, logger *slog.Logger) (*Se
 // ResolveSecretRef reads a Kubernetes Secret and returns the value for the
 // specified key. The namespace parameter determines which namespace to look
 // up the Secret in (typically the namespace of the WormsignSink CRD).
-func (r *SecretResolver) ResolveSecretRef(ctx context.Context, namespace string, ref v1alpha1.SecretReference) (string, error) {
+func (r *KubeSecretResolver) ResolveSecretRef(ctx context.Context, namespace string, ref v1alpha1.SecretReference) (string, error) {
 	if namespace == "" {
 		return "", fmt.Errorf("secret resolver: namespace must not be empty")
 	}
@@ -76,7 +76,7 @@ func (r *SecretResolver) ResolveSecretRef(ctx context.Context, namespace string,
 // WebhookConfig. If the config has a direct URL, it is returned as-is.
 // If it has a URLSecretRef, the secret is read and the URL is returned.
 // Returns an error if neither is set or both are set.
-func (r *SecretResolver) ResolveWebhookURL(ctx context.Context, namespace string, webhook *v1alpha1.WebhookConfig) (string, error) {
+func (r *KubeSecretResolver) ResolveWebhookURL(ctx context.Context, namespace string, webhook *v1alpha1.WebhookConfig) (string, error) {
 	if webhook == nil {
 		return "", fmt.Errorf("secret resolver: webhook config must not be nil")
 	}
@@ -102,7 +102,7 @@ func (r *SecretResolver) ResolveWebhookURL(ctx context.Context, namespace string
 // values. Header values containing the pattern ${SECRET:secret-name:key}
 // are resolved by reading the referenced Kubernetes Secret. Values without
 // the pattern are returned as-is.
-func (r *SecretResolver) ResolveHeaderSecrets(ctx context.Context, namespace string, headers map[string]string) (map[string]string, error) {
+func (r *KubeSecretResolver) ResolveHeaderSecrets(ctx context.Context, namespace string, headers map[string]string) (map[string]string, error) {
 	if len(headers) == 0 {
 		return headers, nil
 	}
@@ -120,7 +120,7 @@ func (r *SecretResolver) ResolveHeaderSecrets(ctx context.Context, namespace str
 
 // resolveHeaderValue checks if a header value contains a secret reference
 // pattern and resolves it. The pattern is ${SECRET:secret-name:key}.
-func (r *SecretResolver) resolveHeaderValue(ctx context.Context, namespace, value string) (string, error) {
+func (r *KubeSecretResolver) resolveHeaderValue(ctx context.Context, namespace, value string) (string, error) {
 	const prefix = "${SECRET:"
 	const suffix = "}"
 

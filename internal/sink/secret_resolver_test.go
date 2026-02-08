@@ -12,7 +12,7 @@ import (
 	v1alpha1 "github.com/k8s-wormsign/k8s-wormsign/api/v1alpha1"
 )
 
-func TestNewSecretResolver_Validation(t *testing.T) {
+func TestNewKubeSecretResolver_Validation(t *testing.T) {
 	tests := []struct {
 		name      string
 		clientset bool
@@ -49,15 +49,15 @@ func TestNewSecretResolver_Validation(t *testing.T) {
 			if !tt.logger {
 				l = nil
 			}
-			_, err := NewSecretResolver(cs, l)
+			_, err := NewKubeSecretResolver(cs, l)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("NewSecretResolver() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("NewKubeSecretResolver() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestSecretResolver_ResolveSecretRef(t *testing.T) {
+func TestKubeSecretResolver_ResolveSecretRef(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "wormsign-sink-secrets",
@@ -71,9 +71,9 @@ func TestSecretResolver_ResolveSecretRef(t *testing.T) {
 		},
 	}
 	cs := fake.NewSimpleClientset(secret)
-	resolver, err := NewSecretResolver(cs, silentLogger())
+	resolver, err := NewKubeSecretResolver(cs, silentLogger())
 	if err != nil {
-		t.Fatalf("NewSecretResolver error: %v", err)
+		t.Fatalf("NewKubeSecretResolver error: %v", err)
 	}
 
 	tests := []struct {
@@ -178,7 +178,7 @@ func TestSecretResolver_ResolveSecretRef(t *testing.T) {
 	}
 }
 
-func TestSecretResolver_ResolveWebhookURL(t *testing.T) {
+func TestKubeSecretResolver_ResolveWebhookURL(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "wormsign-sink-secrets",
@@ -189,9 +189,9 @@ func TestSecretResolver_ResolveWebhookURL(t *testing.T) {
 		},
 	}
 	cs := fake.NewSimpleClientset(secret)
-	resolver, err := NewSecretResolver(cs, silentLogger())
+	resolver, err := NewKubeSecretResolver(cs, silentLogger())
 	if err != nil {
-		t.Fatalf("NewSecretResolver error: %v", err)
+		t.Fatalf("NewKubeSecretResolver error: %v", err)
 	}
 
 	tests := []struct {
@@ -286,7 +286,7 @@ func TestSecretResolver_ResolveWebhookURL(t *testing.T) {
 	}
 }
 
-func TestSecretResolver_ResolveHeaderSecrets(t *testing.T) {
+func TestKubeSecretResolver_ResolveHeaderSecrets(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "wormsign-sink-secrets",
@@ -297,9 +297,9 @@ func TestSecretResolver_ResolveHeaderSecrets(t *testing.T) {
 		},
 	}
 	cs := fake.NewSimpleClientset(secret)
-	resolver, err := NewSecretResolver(cs, silentLogger())
+	resolver, err := NewKubeSecretResolver(cs, silentLogger())
 	if err != nil {
-		t.Fatalf("NewSecretResolver error: %v", err)
+		t.Fatalf("NewKubeSecretResolver error: %v", err)
 	}
 
 	tests := []struct {
