@@ -785,7 +785,7 @@
       "Instantiate and start Controller, block until shutdown signal",
       "Verify go build ./cmd/controller/ produces a working binary"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-helm-chart",
