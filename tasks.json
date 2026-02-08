@@ -559,7 +559,7 @@
       "Verify the filter evaluation order matches Section 6.2",
       "Verify the graceful shutdown order matches Section 2.6"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 1
   },
   {
