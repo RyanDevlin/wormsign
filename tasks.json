@@ -259,7 +259,7 @@
       "Write unit tests for each gatherer using fake client-go clients",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -295,7 +295,7 @@
       "Test error handling: network errors, invalid JSON responses, rate limit errors",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 3
   },
   {
@@ -401,7 +401,7 @@
       "Write unit tests for: CRD add/update/delete lifecycle, invalid CRD handling, status updates",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 3
   },
   {
@@ -435,7 +435,7 @@
       "Write unit tests for startup sequence and shutdown ordering",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 3
   },
   {
@@ -473,7 +473,7 @@
       "Verify helm lint passes on the chart",
       "Verify helm template renders correctly with default values"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 3
   },
   {
@@ -494,7 +494,7 @@
       "Run go test ./... and verify 80%+ coverage for internal/",
       "Fix any failing tests"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 2
   },
   {
@@ -535,7 +535,7 @@
       "Write test: Invalid CRD (bad CEL expression) sets status.conditions[Ready]=False",
       "Verify all integration tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 2
   },
   {
@@ -559,7 +559,7 @@
       "Verify the filter evaluation order matches Section 6.2",
       "Verify the graceful shutdown order matches Section 2.6"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 2
   },
   {
@@ -721,7 +721,7 @@
       "Write unit tests with mock HTTP servers for canned LLM responses",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-sink-framework",
@@ -769,7 +769,7 @@
       "Write unit tests for hashing stability, rebalance minimality, single-replica path",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 3
   },
   {
