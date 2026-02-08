@@ -179,7 +179,7 @@
       "Test that disabled detectors don't fire, cooldown is respected, and exit code filtering works",
       "Verify all tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-cel-detector",
@@ -316,7 +316,7 @@
       "Write unit tests for each sink using mock HTTP servers and fake Kubernetes clients",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-pipeline-queues",
@@ -431,7 +431,7 @@
       "Verify the binary builds and runs (with --help or dry-run flag)",
       "Verify go build produces a working binary"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-helm-chart",
