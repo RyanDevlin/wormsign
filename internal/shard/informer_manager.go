@@ -9,6 +9,8 @@ import (
 
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
+	"k8s.io/client-go/metadata/metadatainformer"
 )
 
 const (
@@ -21,22 +23,27 @@ const (
 // it tears down informer factories for removed namespaces and creates
 // new ones for added namespaces.
 //
-// This implements the informer lifecycle described in Section 3.1.1 of
-// the project specification.
+// Per Section 3.1.1 of the project spec, pods use metadata-only informers
+// (~500 bytes/pod vs 3-8KB for full objects) while nodes, events, PVCs,
+// and CRDs use full informers.
 type InformerManager struct {
-	logger       *slog.Logger
-	clientset    kubernetes.Interface
-	resyncPeriod time.Duration
+	logger         *slog.Logger
+	clientset      kubernetes.Interface
+	metadataClient metadata.Interface
+	resyncPeriod   time.Duration
 
 	mu        sync.RWMutex
 	factories map[string]*namespaceInformerEntry // namespace name → entry
 	stopped   bool
 }
 
-// namespaceInformerEntry tracks an informer factory and its cancellation.
+// namespaceInformerEntry tracks informer factories and their cancellation.
+// Each namespace has a full informer factory (for events, PVCs, etc.)
+// and a metadata-only informer factory (for pods).
 type namespaceInformerEntry struct {
-	factory informers.SharedInformerFactory
-	cancel  context.CancelFunc
+	factory         informers.SharedInformerFactory
+	metadataFactory metadatainformer.SharedInformerFactory
+	cancel          context.CancelFunc
 }
 
 // InformerManagerOption configures an InformerManager.
@@ -53,6 +60,15 @@ func WithInformerLogger(logger *slog.Logger) InformerManagerOption {
 func WithResyncPeriod(d time.Duration) InformerManagerOption {
 	return func(im *InformerManager) {
 		im.resyncPeriod = d
+	}
+}
+
+// WithMetadataClient sets the metadata client for metadata-only informers.
+// Per Section 3.1.1, pods use metadata-only informers for memory efficiency.
+// If not set, the InformerManager uses only full informers.
+func WithMetadataClient(client metadata.Interface) InformerManagerOption {
+	return func(im *InformerManager) {
+		im.metadataClient = client
 	}
 }
 
@@ -122,8 +138,11 @@ func (im *InformerManager) HandleShardChange(added, removed []string) {
 }
 
 // startFactory creates and starts a namespace-scoped informer factory.
+// If a metadata client is configured, it also creates a metadata-only
+// informer factory for pod watches (Section 3.1.1).
 // Must be called with im.mu held.
 func (im *InformerManager) startFactory(namespace string) {
+	// Full informer factory for nodes, events, PVCs, CRDs, etc.
 	factory := informers.NewSharedInformerFactoryWithOptions(
 		im.clientset,
 		im.resyncPeriod,
@@ -133,10 +152,28 @@ func (im *InformerManager) startFactory(namespace string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	factory.Start(ctx.Done())
 
-	im.factories[namespace] = &namespaceInformerEntry{
+	entry := &namespaceInformerEntry{
 		factory: factory,
 		cancel:  cancel,
 	}
+
+	// Metadata-only informer factory for pods (~500 bytes per pod vs 3-8KB).
+	// This reduces memory usage from ~800MB to ~16MB at 33k pods per shard.
+	if im.metadataClient != nil {
+		metaFactory := metadatainformer.NewFilteredSharedInformerFactory(
+			im.metadataClient,
+			im.resyncPeriod,
+			namespace,
+			nil,
+		)
+		metaFactory.Start(ctx.Done())
+		entry.metadataFactory = metaFactory
+		im.logger.Debug("started metadata-only informer factory",
+			"namespace", namespace,
+		)
+	}
+
+	im.factories[namespace] = entry
 }
 
 // GetFactory returns the informer factory for the given namespace, or nil
@@ -149,6 +186,19 @@ func (im *InformerManager) GetFactory(namespace string) informers.SharedInformer
 		return nil
 	}
 	return entry.factory
+}
+
+// GetMetadataFactory returns the metadata-only informer factory for the
+// given namespace, or nil if no factory exists or metadata informers are
+// not configured. Used for pod watches per Section 3.1.1.
+func (im *InformerManager) GetMetadataFactory(namespace string) metadatainformer.SharedInformerFactory {
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+	entry, ok := im.factories[namespace]
+	if !ok || entry.metadataFactory == nil {
+		return nil
+	}
+	return entry.metadataFactory
 }
 
 // Namespaces returns the list of namespaces that currently have active
