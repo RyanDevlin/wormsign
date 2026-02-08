@@ -383,7 +383,7 @@
       "Write unit tests for: CRD add/update/delete lifecycle, invalid CRD handling, status updates",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "implement-leader-election",
