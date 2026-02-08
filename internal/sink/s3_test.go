@@ -1,8 +1,18 @@
 package sink
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
 )
@@ -116,5 +126,100 @@ func TestNewS3SinkWithClient_Validation(t *testing.T) {
 				t.Errorf("newS3SinkWithClient() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestS3Sink_Deliver_Success(t *testing.T) {
+	var receivedBody []byte
+	var receivedPath string
+	var receivedContentType string
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		receivedContentType = r.Header.Get("Content-Type")
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Create an S3 client that points to our test server.
+	cfg := aws.Config{
+		Region:      "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""),
+		HTTPClient:  server.Client(),
+	}
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(server.URL)
+		o.UsePathStyle = true
+	})
+
+	sink, err := newS3SinkWithClient(client, "test-bucket", "wormsign/reports/", silentLogger())
+	if err != nil {
+		t.Fatalf("newS3SinkWithClient: %v", err)
+	}
+	sink.retryCfg = retryConfig{maxAttempts: 1, baseDelay: 0, multiplier: 1}
+
+	report := testReport()
+	err = sink.Deliver(context.Background(), report)
+	if err != nil {
+		t.Fatalf("Deliver() error = %v", err)
+	}
+
+	// Verify the path contains the expected components.
+	if !strings.Contains(receivedPath, "test-bucket") {
+		t.Errorf("path should contain bucket name, got %q", receivedPath)
+	}
+	if !strings.Contains(receivedPath, "wormsign/reports/") {
+		t.Errorf("path should contain prefix, got %q", receivedPath)
+	}
+	if !strings.Contains(receivedPath, "test-event-123.json") {
+		t.Errorf("path should contain event ID, got %q", receivedPath)
+	}
+
+	// Verify Content-Type.
+	if receivedContentType != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", receivedContentType)
+	}
+
+	// Verify body is valid JSON containing the report.
+	var decoded model.RCAReport
+	if err := json.Unmarshal(receivedBody, &decoded); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if decoded.FaultEventID != "test-event-123" {
+		t.Errorf("FaultEventID = %q, want %q", decoded.FaultEventID, "test-event-123")
+	}
+	if decoded.RootCause != "Pod OOMKilled due to memory limit" {
+		t.Errorf("RootCause = %q, want %q", decoded.RootCause, "Pod OOMKilled due to memory limit")
+	}
+}
+
+func TestS3Sink_Deliver_ServerError(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cfg := aws.Config{
+		Region:      "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""),
+		HTTPClient:  server.Client(),
+		RetryMaxAttempts: 1,
+	}
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(server.URL)
+		o.UsePathStyle = true
+	})
+
+	sink, err := newS3SinkWithClient(client, "test-bucket", "", silentLogger())
+	if err != nil {
+		t.Fatalf("newS3SinkWithClient: %v", err)
+	}
+	sink.retryCfg = retryConfig{maxAttempts: 1, baseDelay: 0, multiplier: 1}
+
+	err = sink.Deliver(context.Background(), testReport())
+	if err == nil {
+		t.Fatal("expected error for server error response")
 	}
 }
