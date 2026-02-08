@@ -510,7 +510,7 @@
       "Write test: Invalid CRD (bad CEL expression) sets status.conditions[Ready]=False",
       "Verify all integration tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "final-validation",
