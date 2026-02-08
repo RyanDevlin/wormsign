@@ -11,7 +11,7 @@
       "Create a minimal cmd/controller/main.go that compiles (package main, empty main func)",
       "Run go mod tidy and verify the project compiles with go build ./..."
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 1
   },
   {
