@@ -688,7 +688,7 @@
       "Write unit tests using fake client-go clients for each gatherer",
       "Verify tests pass"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 2
   },
   {
