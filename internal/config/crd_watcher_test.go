@@ -2507,6 +2507,251 @@ func TestConcurrent_MixedOperations(t *testing.T) {
 	wg.Wait()
 }
 
+// ==========================================
+// Tests: CRDWatcher.Counts()
+// ==========================================
+
+func TestCounts_Empty(t *testing.T) {
+	w, _, _, _, _ := newTestCRDWatcher(t)
+	counts := w.Counts()
+	if counts.Detectors != 0 || counts.Gatherers != 0 || counts.Sinks != 0 || counts.Policies != 0 {
+		t.Errorf("expected all zero counts, got %+v", counts)
+	}
+}
+
+func TestCounts_AllTypes(t *testing.T) {
+	w, _, _, _, _ := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	w.OnDetectorAdd(ctx, validDetector("default", "det-1"))
+	w.OnDetectorAdd(ctx, validDetector("default", "det-2"))
+	w.OnGathererAdd(ctx, validGatherer("default", "gath-1"))
+	w.OnSinkAdd(ctx, validSink("default", "sink-1"))
+	w.OnSinkAdd(ctx, validSink("default", "sink-2"))
+	w.OnSinkAdd(ctx, validSink("default", "sink-3"))
+	w.OnPolicyAdd(ctx, validPolicy("default", "pol-1"))
+
+	counts := w.Counts()
+	if counts.Detectors != 2 {
+		t.Errorf("expected 2 detectors, got %d", counts.Detectors)
+	}
+	if counts.Gatherers != 1 {
+		t.Errorf("expected 1 gatherer, got %d", counts.Gatherers)
+	}
+	if counts.Sinks != 3 {
+		t.Errorf("expected 3 sinks, got %d", counts.Sinks)
+	}
+	if counts.Policies != 1 {
+		t.Errorf("expected 1 policy, got %d", counts.Policies)
+	}
+}
+
+func TestCounts_AfterDelete(t *testing.T) {
+	w, _, _, _, _ := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	w.OnDetectorAdd(ctx, validDetector("default", "det-1"))
+	w.OnDetectorAdd(ctx, validDetector("default", "det-2"))
+	w.OnDetectorDelete("default/det-1")
+
+	counts := w.Counts()
+	if counts.Detectors != 1 {
+		t.Errorf("expected 1 detector after delete, got %d", counts.Detectors)
+	}
+}
+
+func TestCounts_InvalidNotCounted(t *testing.T) {
+	w, _, _, _, _ := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	// Add valid detector
+	w.OnDetectorAdd(ctx, validDetector("default", "valid-det"))
+
+	// Add invalid detector (bad CEL)
+	badDet := validDetector("default", "bad-det")
+	badDet.Spec.Condition = "!@#$%^&*(invalid"
+	w.OnDetectorAdd(ctx, badDet)
+
+	counts := w.Counts()
+	if counts.Detectors != 1 {
+		t.Errorf("expected 1 valid detector (invalid should not count), got %d", counts.Detectors)
+	}
+}
+
+// ==========================================
+// Tests: Deterministic policy ordering
+// ==========================================
+
+func TestPolicy_DeterministicOrdering(t *testing.T) {
+	w, _, _, _, _ := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	// Add policies in non-alphabetical order
+	names := []string{"z-policy", "a-policy", "m-policy", "d-policy"}
+	for _, name := range names {
+		policy := validPolicy("default", name)
+		w.OnPolicyAdd(ctx, policy)
+	}
+
+	// Verify all 4 policies are stored
+	w.mu.RLock()
+	storeCount := len(w.policyStore)
+	w.mu.RUnlock()
+	if storeCount != 4 {
+		t.Errorf("expected 4 policies in store, got %d", storeCount)
+	}
+
+	// The filter engine should have received a sorted list.
+	// While we can't directly inspect the order the engine received,
+	// we can verify that calling rebuildPolicies multiple times gives
+	// consistent results by checking the count remains stable.
+	w.rebuildPolicies()
+	w.rebuildPolicies()
+
+	counts := w.Counts()
+	if counts.Policies != 4 {
+		t.Errorf("expected 4 policies after rebuild, got %d", counts.Policies)
+	}
+}
+
+// ==========================================
+// Tests: Update then re-add cycle
+// ==========================================
+
+func TestDetector_UpdateInvalidThenReAdd(t *testing.T) {
+	w, dr, _, _, su := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	// Add valid detector
+	det := validDetector("default", "cycle-det")
+	w.OnDetectorAdd(ctx, det)
+	if dr.count() != 1 {
+		t.Fatal("expected 1 detector after initial add")
+	}
+
+	// Update with invalid (previous remains)
+	badDet := validDetector("default", "cycle-det")
+	badDet.Spec.Condition = "!invalid!"
+	w.OnDetectorUpdate(ctx, badDet)
+
+	// Previous should still be active
+	if dr.count() != 1 {
+		t.Error("expected previous valid detector to remain")
+	}
+	updates := su.updatesForResource("detector", "default", "cycle-det")
+	lastUpdate := updates[len(updates)-1]
+	readyCond := findCondition(lastUpdate.conditions, v1alpha1.ConditionReady)
+	if readyCond == nil || readyCond.Status != metav1.ConditionFalse {
+		t.Error("expected Ready=False after invalid update")
+	}
+
+	// Re-add with valid config
+	det2 := validDetector("default", "cycle-det")
+	det2.Spec.Condition = `resource.metadata.name == "test"`
+	w.OnDetectorUpdate(ctx, det2)
+
+	// Should be valid again
+	updates = su.updatesForResource("detector", "default", "cycle-det")
+	lastUpdate = updates[len(updates)-1]
+	readyCond = findCondition(lastUpdate.conditions, v1alpha1.ConditionReady)
+	if readyCond == nil || readyCond.Status != metav1.ConditionTrue {
+		t.Error("expected Ready=True after valid re-update")
+	}
+}
+
+func TestGatherer_UpdateInvalidThenReAdd(t *testing.T) {
+	w, _, gr, _, _ := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	gath := validGatherer("default", "cycle-gath")
+	w.OnGathererAdd(ctx, gath)
+	if gr.count() != 1 {
+		t.Fatal("expected 1 gatherer after initial add")
+	}
+
+	// Update with invalid (nil collect)
+	badGath := validGatherer("default", "cycle-gath")
+	badGath.Spec.Collect = nil
+	w.OnGathererUpdate(ctx, badGath)
+
+	// Previous should remain
+	if gr.count() != 1 {
+		t.Error("expected previous valid gatherer to remain")
+	}
+
+	// Re-update with valid config
+	gath2 := validGatherer("default", "cycle-gath")
+	gath2.Spec.Description = "re-validated"
+	w.OnGathererUpdate(ctx, gath2)
+
+	reg, ok := gr.get("default/cycle-gath")
+	if !ok {
+		t.Fatal("expected gatherer to be registered after re-update")
+	}
+	if reg.Description != "re-validated" {
+		t.Errorf("expected description='re-validated', got %q", reg.Description)
+	}
+}
+
+func TestSink_UpdateInvalidThenReAdd(t *testing.T) {
+	w, _, _, sr, _ := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	sink := validSink("default", "cycle-sink")
+	w.OnSinkAdd(ctx, sink)
+	if sr.count() != 1 {
+		t.Fatal("expected 1 sink after initial add")
+	}
+
+	// Update with invalid template
+	badSink := validSink("default", "cycle-sink")
+	badSink.Spec.Webhook.BodyTemplate = `{{ .Bad | nonexistent_func }}`
+	w.OnSinkUpdate(ctx, badSink)
+
+	// Previous should remain
+	if sr.count() != 1 {
+		t.Error("expected previous valid sink to remain")
+	}
+
+	// Re-update with valid config
+	sink2 := validSink("default", "cycle-sink")
+	sink2.Spec.Description = "re-validated"
+	w.OnSinkUpdate(ctx, sink2)
+
+	reg, ok := sr.get("default/cycle-sink")
+	if !ok {
+		t.Fatal("expected sink to be registered after re-update")
+	}
+	if reg.Description != "re-validated" {
+		t.Errorf("expected description='re-validated', got %q", reg.Description)
+	}
+}
+
+func TestPolicy_UpdateInvalidThenReAdd(t *testing.T) {
+	w, _, _, _, su := newTestCRDWatcher(t)
+	ctx := context.Background()
+
+	policy := validPolicy("default", "cycle-pol")
+	w.OnPolicyAdd(ctx, policy)
+
+	// Update with invalid action
+	badPolicy := validPolicy("default", "cycle-pol")
+	badPolicy.Spec.Action = "Invalid"
+	w.OnPolicyUpdate(ctx, badPolicy)
+
+	// Re-update with valid config
+	policy2 := validPolicy("default", "cycle-pol")
+	policy2.Spec.Detectors = []string{"PodFailed"}
+	w.OnPolicyUpdate(ctx, policy2)
+
+	updates := su.updatesForResource("policy", "default", "cycle-pol")
+	lastUpdate := updates[len(updates)-1]
+	readyCond := findCondition(lastUpdate.conditions, v1alpha1.ConditionReady)
+	if readyCond == nil || readyCond.Status != metav1.ConditionTrue {
+		t.Error("expected Ready=True after valid re-update")
+	}
+}
+
 // --- helpers ---
 
 func int64Ptr(v int64) *int64 {

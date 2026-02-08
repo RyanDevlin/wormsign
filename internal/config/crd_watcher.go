@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"text/template"
 	"time"
@@ -162,6 +163,44 @@ func NewCRDWatcher(cfg CRDWatcherConfig) (*CRDWatcher, error) {
 		validPolicies:    make(map[string]bool),
 		policyStore:      make(map[string]v1alpha1.WormsignPolicy),
 	}, nil
+}
+
+// CRDCounts holds the number of registered CRDs by type.
+type CRDCounts struct {
+	Detectors int
+	Gatherers int
+	Sinks     int
+	Policies  int
+}
+
+// Counts returns the number of currently valid and registered CRDs by type.
+// This is useful for readiness checks and metrics.
+func (w *CRDWatcher) Counts() CRDCounts {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	counts := CRDCounts{}
+	for _, v := range w.validDetectors {
+		if v {
+			counts.Detectors++
+		}
+	}
+	for _, v := range w.validGatherers {
+		if v {
+			counts.Gatherers++
+		}
+	}
+	for _, v := range w.validSinks {
+		if v {
+			counts.Sinks++
+		}
+	}
+	for _, v := range w.validPolicies {
+		if v {
+			counts.Policies++
+		}
+	}
+	return counts
 }
 
 // crdKey returns the namespace/name key for a CRD object.
@@ -701,16 +740,23 @@ func setCondition(conditions *[]metav1.Condition, condType string, status metav1
 // --- Policy rebuild ---
 
 // rebuildPolicies rebuilds the complete set of filter.Policy objects from
-// all known valid policies and updates the filter engine.
+// all known valid policies and updates the filter engine. Policies are sorted
+// by namespace/name for deterministic evaluation order.
 func (w *CRDWatcher) rebuildPolicies() {
 	w.mu.RLock()
-	var policies []filter.Policy
-	for key, p := range w.policyStore {
-		if !w.validPolicies[key] {
-			continue
+	// Collect valid policy keys and sort for deterministic order.
+	keys := make([]string, 0, len(w.policyStore))
+	for key := range w.policyStore {
+		if w.validPolicies[key] {
+			keys = append(keys, key)
 		}
-		pCopy := p
-		fp := convertToFilterPolicy(&pCopy)
+	}
+	sort.Strings(keys)
+
+	policies := make([]filter.Policy, 0, len(keys))
+	for _, key := range keys {
+		p := w.policyStore[key]
+		fp := convertToFilterPolicy(&p)
 		policies = append(policies, fp)
 	}
 	w.mu.RUnlock()
