@@ -4,21 +4,30 @@ package analyzer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
+	"github.com/k8s-wormsign/k8s-wormsign/internal/analyzer/prompt"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
 )
 
 // BedrockAnalyzer uses AWS Bedrock to analyze diagnostic bundles.
 type BedrockAnalyzer struct {
-	client  *bedrockruntime.Client
-	modelID string
-	logger  *slog.Logger
+	client   BedrockClient
+	modelID  string
+	prompter *prompt.Builder
+	logger   *slog.Logger
+}
+
+// BedrockClient is the interface for invoking Bedrock models, allowing test
+// injection of a mock.
+type BedrockClient interface {
+	InvokeModel(ctx context.Context, params *bedrockruntime.InvokeModelInput, optFns ...func(*bedrockruntime.Options)) (*bedrockruntime.InvokeModelOutput, error)
 }
 
 // BedrockConfig holds configuration for the Bedrock analyzer.
@@ -29,18 +38,21 @@ type BedrockConfig struct {
 
 // NewBedrockAnalyzer creates a new Bedrock-backed analyzer.
 // It loads AWS credentials using the default credential chain (IRSA-compatible).
-func NewBedrockAnalyzer(ctx context.Context, cfg BedrockConfig, logger *slog.Logger) (*BedrockAnalyzer, error) {
+func NewBedrockAnalyzer(ctx context.Context, cfg BedrockConfig, prompter *prompt.Builder, logger *slog.Logger) (*BedrockAnalyzer, error) {
 	if cfg.Region == "" {
 		return nil, fmt.Errorf("bedrock: region must not be empty")
 	}
 	if cfg.ModelID == "" {
 		return nil, fmt.Errorf("bedrock: modelID must not be empty")
 	}
+	if prompter == nil {
+		return nil, fmt.Errorf("bedrock: prompter must not be nil")
+	}
 	if logger == nil {
 		return nil, fmt.Errorf("bedrock: logger must not be nil")
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.Region))
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.Region))
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: loading AWS config: %w", err)
 	}
@@ -48,9 +60,33 @@ func NewBedrockAnalyzer(ctx context.Context, cfg BedrockConfig, logger *slog.Log
 	client := bedrockruntime.NewFromConfig(awsCfg)
 
 	return &BedrockAnalyzer{
-		client:  client,
-		modelID: cfg.ModelID,
-		logger:  logger,
+		client:   client,
+		modelID:  cfg.ModelID,
+		prompter: prompter,
+		logger:   logger,
+	}, nil
+}
+
+// newBedrockAnalyzerWithClient creates a BedrockAnalyzer with an injected client
+// (for testing).
+func newBedrockAnalyzerWithClient(client BedrockClient, modelID string, prompter *prompt.Builder, logger *slog.Logger) (*BedrockAnalyzer, error) {
+	if client == nil {
+		return nil, fmt.Errorf("bedrock: client must not be nil")
+	}
+	if modelID == "" {
+		return nil, fmt.Errorf("bedrock: modelID must not be empty")
+	}
+	if prompter == nil {
+		return nil, fmt.Errorf("bedrock: prompter must not be nil")
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("bedrock: logger must not be nil")
+	}
+	return &BedrockAnalyzer{
+		client:   client,
+		modelID:  modelID,
+		prompter: prompter,
+		logger:   logger,
 	}, nil
 }
 
@@ -59,14 +95,86 @@ func (b *BedrockAnalyzer) Name() string {
 	return "claude-bedrock"
 }
 
-// Analyze sends the diagnostic bundle to AWS Bedrock for analysis.
-// This is a stub that will be fully implemented in a subsequent task.
-func (b *BedrockAnalyzer) Analyze(ctx context.Context, bundle model.DiagnosticBundle) (*model.RCAReport, error) {
-	_ = aws.ToString(nil) // ensure aws package is used
-	return nil, fmt.Errorf("bedrock: Analyze not yet implemented")
+// bedrockAnthropicRequest is the request body for Anthropic models via Bedrock
+// InvokeModel. Bedrock expects the native Anthropic Messages API format.
+type bedrockAnthropicRequest struct {
+	AnthropicVersion string           `json:"anthropic_version"`
+	MaxTokens        int              `json:"max_tokens"`
+	Temperature      float64          `json:"temperature"`
+	System           string           `json:"system"`
+	Messages         []claudeMessage  `json:"messages"`
 }
 
-// Healthy checks whether the Bedrock service is reachable.
+// bedrockAnthropicResponse mirrors the Claude response format returned by
+// Bedrock InvokeModel for Anthropic models.
+type bedrockAnthropicResponse struct {
+	Content []claudeContentBlock `json:"content"`
+	Usage   claudeUsage          `json:"usage"`
+}
+
+// Analyze sends the diagnostic bundle to AWS Bedrock for analysis using the
+// Anthropic model specified by modelID.
+func (b *BedrockAnalyzer) Analyze(ctx context.Context, bundle model.DiagnosticBundle) (*model.RCAReport, error) {
+	userPrompt := b.prompter.BuildUserPrompt(bundle)
+
+	reqBody := bedrockAnthropicRequest{
+		AnthropicVersion: anthropicVersion,
+		MaxTokens:        4096,
+		Temperature:      0.0,
+		System:           b.prompter.SystemPrompt(),
+		Messages: []claudeMessage{
+			{Role: "user", Content: userPrompt},
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: marshaling request: %w", err)
+	}
+
+	b.logger.Info("sending analysis request to Bedrock",
+		"model_id", b.modelID,
+		"fault_event_id", faultEventID(bundle),
+	)
+
+	output, err := b.client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
+		ModelId:     aws.String(b.modelID),
+		ContentType: aws.String("application/json"),
+		Accept:      aws.String("application/json"),
+		Body:        bodyBytes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("bedrock: invoking model: %w", err)
+	}
+
+	var bedrockResp bedrockAnthropicResponse
+	if err := json.Unmarshal(output.Body, &bedrockResp); err != nil {
+		return nil, fmt.Errorf("bedrock: parsing response JSON: %w", err)
+	}
+
+	// Extract text from content blocks.
+	var analysisText string
+	for _, block := range bedrockResp.Content {
+		if block.Type == "text" {
+			analysisText += block.Text
+		}
+	}
+
+	tokens := model.TokenUsage{
+		Input:  bedrockResp.Usage.InputTokens,
+		Output: bedrockResp.Usage.OutputTokens,
+	}
+
+	b.logger.Info("received Bedrock analysis response",
+		"fault_event_id", faultEventID(bundle),
+		"input_tokens", tokens.Input,
+		"output_tokens", tokens.Output,
+	)
+
+	return ParseLLMResponse(analysisText, bundle, "claude-bedrock", tokens), nil
+}
+
+// Healthy checks whether the Bedrock client is configured.
 func (b *BedrockAnalyzer) Healthy(ctx context.Context) bool {
 	return b.client != nil
 }
