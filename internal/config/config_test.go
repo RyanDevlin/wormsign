@@ -1185,6 +1185,222 @@ filters:
 	}
 }
 
+// ---- LoadAndValidate() tests ----
+
+func TestLoadAndValidate_ValidFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := []byte(`
+logging:
+  level: info
+  format: json
+analyzer:
+  backend: noop
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("writing test file: %v", err)
+	}
+
+	cfg, err := LoadAndValidate(path)
+	if err != nil {
+		t.Fatalf("LoadAndValidate() returned error: %v", err)
+	}
+	// Verify defaults were applied.
+	if cfg.Pipeline.Workers.Gathering != 5 {
+		t.Errorf("expected gathering workers=5 (from defaults), got %d", cfg.Pipeline.Workers.Gathering)
+	}
+}
+
+func TestLoadAndValidate_MissingFileReturnsDefaults(t *testing.T) {
+	cfg, err := LoadAndValidate("/nonexistent/path/config.yaml")
+	if err != nil {
+		t.Fatalf("expected no error for missing file, got: %v", err)
+	}
+	if cfg.ReplicaCount != 1 {
+		t.Errorf("expected default ReplicaCount=1, got %d", cfg.ReplicaCount)
+	}
+}
+
+func TestLoadAndValidate_InvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.yaml")
+	content := []byte(`
+logging:
+  level: invalid_level
+  format: json
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("writing test file: %v", err)
+	}
+
+	_, err := LoadAndValidate(path)
+	if err == nil {
+		t.Fatal("expected validation error for invalid log level")
+	}
+	if !strings.Contains(err.Error(), "config validation failed") {
+		t.Errorf("expected 'config validation failed' prefix in error, got: %v", err)
+	}
+}
+
+func TestLoadAndValidate_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "broken.yaml")
+	if err := os.WriteFile(path, []byte("{invalid"), 0o644); err != nil {
+		t.Fatalf("writing test file: %v", err)
+	}
+
+	_, err := LoadAndValidate(path)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML, got nil")
+	}
+}
+
+// ---- Additional edge case tests ----
+
+func TestValidate_ReplicaCount_Zero(t *testing.T) {
+	// After ApplyDefaults, ReplicaCount should be filled in.
+	cfg := &Config{}
+	cfg.ApplyDefaults()
+	if cfg.ReplicaCount != 1 {
+		t.Errorf("expected ReplicaCount=1 after defaults, got %d", cfg.ReplicaCount)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should be valid: %v", err)
+	}
+}
+
+func TestValidate_Analyzer_NegativeHourlyTokenBudget(t *testing.T) {
+	cfg := Default()
+	cfg.Analyzer.RateLimiting.HourlyTokenBudget = -1
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for negative hourly token budget")
+	}
+	if !strings.Contains(err.Error(), "hourlyTokenBudget") {
+		t.Errorf("expected 'hourlyTokenBudget' in error, got: %v", err)
+	}
+}
+
+func TestValidate_Analyzer_OpenAI_InvalidMaxTokens(t *testing.T) {
+	cfg := Default()
+	cfg.Analyzer.Backend = "openai"
+	cfg.Analyzer.OpenAI.MaxTokens = 0
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for openai maxTokens=0")
+	}
+}
+
+func TestValidate_Sinks_KubernetesEvent_InvalidSeverity(t *testing.T) {
+	cfg := Default()
+	cfg.Sinks.KubernetesEvent.SeverityFilter = []string{"critical", "fatal"}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid severity in kubernetesEvent sink filter")
+	}
+}
+
+func TestValidate_Sinks_PagerDuty_InvalidSeverity(t *testing.T) {
+	cfg := Default()
+	cfg.Sinks.PagerDuty.SeverityFilter = []string{"high"}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid severity in pagerduty sink filter")
+	}
+}
+
+func TestValidate_Sinks_Webhook_InvalidSeverity(t *testing.T) {
+	cfg := Default()
+	cfg.Sinks.Webhook.SeverityFilter = []string{"critical", "low"}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid severity in webhook sink filter")
+	}
+}
+
+func TestValidate_Correlation_DeploymentRollout_InvalidMinPodFailures(t *testing.T) {
+	cfg := Default()
+	cfg.Correlation.Rules.DeploymentRollout.MinPodFailures = 0
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for deploymentRollout minPodFailures=0")
+	}
+}
+
+func TestValidate_Correlation_NamespaceStorm_InvalidThreshold(t *testing.T) {
+	cfg := Default()
+	cfg.Correlation.Rules.NamespaceStorm.Threshold = 0
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for namespaceStorm threshold=0")
+	}
+}
+
+func TestValidate_AllDetectorCooldowns_Negative(t *testing.T) {
+	detectors := []struct {
+		name   string
+		modify func(*Config)
+	}{
+		{"PodStuckPending", func(c *Config) { c.Detectors.PodStuckPending.Cooldown = -time.Second }},
+		{"PodFailed", func(c *Config) { c.Detectors.PodFailed.Cooldown = -time.Second }},
+		{"NodeNotReady", func(c *Config) { c.Detectors.NodeNotReady.Cooldown = -time.Second }},
+		{"PVCStuckBinding", func(c *Config) { c.Detectors.PVCStuckBinding.Cooldown = -time.Second }},
+		{"HighPodCount", func(c *Config) { c.Detectors.HighPodCount.Cooldown = -time.Second }},
+		{"JobDeadlineExceeded", func(c *Config) { c.Detectors.JobDeadlineExceeded.Cooldown = -time.Second }},
+	}
+	for _, tt := range detectors {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			tt.modify(cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("expected validation error for %s negative cooldown", tt.name)
+			}
+		})
+	}
+}
+
+func TestValidate_MetricsServiceMonitor_ZeroIntervalWhenEnabled(t *testing.T) {
+	cfg := Default()
+	cfg.Metrics.ServiceMonitor.Enabled = true
+	cfg.Metrics.ServiceMonitor.Interval = 0
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for serviceMonitor interval=0 when enabled")
+	}
+}
+
+func TestValidate_Health_PortTooLarge(t *testing.T) {
+	cfg := Default()
+	cfg.Health.Port = 70000
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for health port > 65535")
+	}
+}
+
+func TestApplyDefaults_SinkDefaults(t *testing.T) {
+	cfg := &Config{
+		Sinks: SinksConfig{
+			Slack: SlackSinkConfig{
+				Enabled: true,
+				// SeverityFilter nil — should get defaults
+			},
+			PagerDuty: PagerDutySinkConfig{
+				Enabled: true,
+				// SeverityFilter nil — should get defaults
+			},
+		},
+	}
+	cfg.ApplyDefaults()
+
+	if len(cfg.Sinks.Slack.SeverityFilter) != 2 {
+		t.Errorf("expected 2 default severity filters for Slack, got %d", len(cfg.Sinks.Slack.SeverityFilter))
+	}
+	if len(cfg.Sinks.PagerDuty.SeverityFilter) != 1 {
+		t.Errorf("expected 1 default severity filter for PagerDuty, got %d", len(cfg.Sinks.PagerDuty.SeverityFilter))
+	}
+}
+
 func TestLoad_GathererRedactPatterns(t *testing.T) {
 	yaml := `
 analyzer:

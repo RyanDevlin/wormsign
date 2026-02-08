@@ -49,6 +49,22 @@ func LoadFile(path string) (*Config, error) {
 	return LoadFromFile(path)
 }
 
+// LoadAndValidate loads configuration from the given path, applies defaults
+// for any unset fields, and validates the result. This is the recommended
+// entrypoint for controller startup per Section 2.5: if the configuration
+// is invalid, the returned error should cause a crash with a clear message.
+func LoadAndValidate(path string) (*Config, error) {
+	cfg, err := LoadFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+	return cfg, nil
+}
+
 // validLogLevels is the set of accepted log level strings.
 var validLogLevels = map[string]slog.Level{
 	"debug": slog.LevelDebug,
