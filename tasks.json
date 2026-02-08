@@ -57,7 +57,7 @@
       "Verify CRD YAML files are valid (4 CRDs: wormsigndetectors, wormsigngatherers, wormsignsinks, wormsignpolicies)",
       "Add generate target to Makefile"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "implement-config",
