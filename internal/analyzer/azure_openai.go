@@ -26,6 +26,8 @@ const (
 type AzureOpenAIAnalyzer struct {
 	endpoint       string
 	deploymentName string
+	maxTokens      int
+	temperature    float64
 	secretRef      SecretRef
 	secretReader   SecretReader
 	httpClient     *http.Client
@@ -39,6 +41,8 @@ type AzureOpenAIAnalyzer struct {
 type AzureOpenAIConfig struct {
 	Endpoint       string
 	DeploymentName string
+	MaxTokens      int
+	Temperature    float64
 	APIKeyRef      SecretRef
 	// APIURL overrides the constructed Azure endpoint (for testing).
 	APIURL string
@@ -65,9 +69,17 @@ func NewAzureOpenAIAnalyzer(cfg AzureOpenAIConfig, secretReader SecretReader, pr
 		return nil, fmt.Errorf("azure-openai: logger must not be nil")
 	}
 
+	// Default maxTokens to 4096 if not set.
+	maxTokens := cfg.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+
 	return &AzureOpenAIAnalyzer{
 		endpoint:       strings.TrimRight(cfg.Endpoint, "/"),
 		deploymentName: cfg.DeploymentName,
+		maxTokens:      maxTokens,
+		temperature:    cfg.Temperature,
 		secretRef:      cfg.APIKeyRef,
 		secretReader:   secretReader,
 		httpClient:     &http.Client{Timeout: azureHTTPTimeout},
@@ -104,8 +116,8 @@ func (a *AzureOpenAIAnalyzer) Analyze(ctx context.Context, bundle model.Diagnost
 	// field (the deployment specifies the model).
 	reqBody := openAIRequest{
 		Model:       "", // Not used by Azure; deployment determines the model.
-		MaxTokens:   4096,
-		Temperature: 0.0,
+		MaxTokens:   a.maxTokens,
+		Temperature: a.temperature,
 		Messages: []openAIMessage{
 			{Role: "system", Content: a.prompter.SystemPrompt()},
 			{Role: "user", Content: userPrompt},

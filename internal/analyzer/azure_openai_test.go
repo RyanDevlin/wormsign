@@ -521,6 +521,78 @@ func TestAzureOpenAIAnalyzer_Analyze_JSONInCodeFence(t *testing.T) {
 	}
 }
 
+func TestAzureOpenAIAnalyzer_Analyze_ConfigPassedThrough(t *testing.T) {
+	var receivedTemp float64
+	var receivedMaxTokens int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req openAIRequest
+		json.Unmarshal(body, &req)
+		receivedTemp = req.Temperature
+		receivedMaxTokens = req.MaxTokens
+
+		resp := openAIResponse{
+			Choices: []openAIChoice{
+				{Message: openAIMessage{Role: "assistant", Content: validLLMResponseJSON()}},
+			},
+			Usage: openAIUsage{PromptTokens: 100, CompletionTokens: 50},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cfg := AzureOpenAIConfig{
+		Endpoint:       "https://mycompany.openai.azure.com",
+		DeploymentName: "gpt-4o",
+		MaxTokens:      8192,
+		Temperature:    0.7,
+		APIKeyRef:      testSecretRef(),
+		APIURL:         server.URL,
+	}
+	a, _ := NewAzureOpenAIAnalyzer(cfg, newMockSecretReader("test-key"), testPrompter(), testLogger())
+	a.Analyze(context.Background(), testDiagnosticBundle())
+
+	if receivedTemp != 0.7 {
+		t.Errorf("temperature sent = %f, want 0.7", receivedTemp)
+	}
+	if receivedMaxTokens != 8192 {
+		t.Errorf("maxTokens sent = %d, want 8192", receivedMaxTokens)
+	}
+}
+
+func TestAzureOpenAIAnalyzer_MaxTokensDefault(t *testing.T) {
+	var receivedMaxTokens int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req openAIRequest
+		json.Unmarshal(body, &req)
+		receivedMaxTokens = req.MaxTokens
+
+		resp := openAIResponse{
+			Choices: []openAIChoice{
+				{Message: openAIMessage{Role: "assistant", Content: validLLMResponseJSON()}},
+			},
+			Usage: openAIUsage{PromptTokens: 100, CompletionTokens: 50},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// MaxTokens not set (zero value) should default to 4096.
+	cfg := AzureOpenAIConfig{
+		Endpoint:       "https://mycompany.openai.azure.com",
+		DeploymentName: "gpt-4o",
+		APIKeyRef:      testSecretRef(),
+		APIURL:         server.URL,
+	}
+	a, _ := NewAzureOpenAIAnalyzer(cfg, newMockSecretReader("test-key"), testPrompter(), testLogger())
+	a.Analyze(context.Background(), testDiagnosticBundle())
+
+	if receivedMaxTokens != 4096 {
+		t.Errorf("maxTokens sent = %d, want 4096 (default)", receivedMaxTokens)
+	}
+}
+
 // --- Azure OpenAI Healthy tests ---
 
 func TestAzureOpenAIAnalyzer_Healthy_Success(t *testing.T) {
