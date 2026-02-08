@@ -11,7 +11,8 @@
       "Create a minimal cmd/controller/main.go that compiles (package main, empty main func)",
       "Run go mod tidy and verify the project compiles with go build ./..."
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "define-core-models",
@@ -43,7 +44,8 @@
       "Create api/v1alpha1/register.go with SchemeBuilder, AddToScheme, and GroupVersion registration",
       "Verify all types compile"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "codegen-deepcopy-crds",
@@ -72,7 +74,8 @@
       "Write unit tests: loading valid config, loading with defaults, validation failures for each invalid case",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-metrics",
@@ -125,7 +128,8 @@
       "Write unit tests covering: default patterns, custom patterns, no false positives on normal text, Secret env var redaction",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-filter-engine",
@@ -146,7 +150,8 @@
       "Write unit tests for each filter level and short-circuit behavior",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-detector-interface",
@@ -161,7 +166,8 @@
       "Write unit tests for cooldown behavior, deduplication, and registry operations",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-builtin-detectors",
@@ -179,7 +185,8 @@
       "Test that disabled detectors don't fire, cooldown is respected, and exit code filtering works",
       "Verify all tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-cel-detector",
@@ -196,7 +203,8 @@
       "Write unit tests: valid CEL expressions, invalid expressions (compilation error), cost budget exceeded, params usage, namespace selector matching",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-correlator",
@@ -214,7 +222,8 @@
       "Write unit tests for each correlation rule, window expiry, and edge cases (overlapping rules, single event)",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-gatherer-interface",
@@ -230,7 +239,8 @@
       "Write unit tests for trigger matching, concurrent execution, error handling (failed gatherer populates Error field)",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-builtin-gatherers",
@@ -249,7 +259,8 @@
       "Write unit tests for each gatherer using fake client-go clients",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-analyzer-interface",
@@ -265,7 +276,8 @@
       "Write unit tests for: noop analyzer, circuit breaker state transitions, rate limiter budget tracking, prompt construction, response validation and fallback",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-llm-backends",
@@ -283,7 +295,8 @@
       "Test error handling: network errors, invalid JSON responses, rate limit errors",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-sink-interface",
@@ -300,7 +313,8 @@
       "Write unit tests for: log sink output, severity filtering, retry logic, SSRF domain validation, template rendering",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-builtin-sinks",
@@ -316,7 +330,8 @@
       "Write unit tests for each sink using mock HTTP servers and fake Kubernetes clients",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-pipeline-queues",
@@ -333,7 +348,8 @@
       "Write unit tests for queue operations, priority ordering, and drain behavior",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-pipeline-orchestrator",
@@ -350,7 +366,8 @@
       "Write unit tests: full pipeline flow with mock detectors/gatherers/analyzers/sinks",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-shard-manager",
@@ -367,7 +384,8 @@
       "Write unit tests for: consistent hashing stability, rebalance minimality, single-replica path",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-crd-watchers",
@@ -383,7 +401,8 @@
       "Write unit tests for: CRD add/update/delete lifecycle, invalid CRD handling, status updates",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-leader-election",
@@ -399,7 +418,8 @@
       "Write unit tests for leader election callbacks and metric updates",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-controller-lifecycle",
@@ -415,7 +435,8 @@
       "Write unit tests for startup sequence and shutdown ordering",
       "Verify tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-main-entrypoint",
@@ -431,7 +452,8 @@
       "Verify the binary builds and runs (with --help or dry-run flag)",
       "Verify go build produces a working binary"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "implement-helm-chart",
@@ -451,7 +473,8 @@
       "Verify helm lint passes on the chart",
       "Verify helm template renders correctly with default values"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "add-unit-tests",
@@ -471,7 +494,8 @@
       "Run go test ./... and verify 80%+ coverage for internal/",
       "Fix any failing tests"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "security-audit",
@@ -490,7 +514,8 @@
       "Fix any issues found",
       "Create SECURITY_REVIEW.md documenting the review findings and any remediations applied"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "integration-tests",
@@ -510,7 +535,8 @@
       "Write test: Invalid CRD (bad CEL expression) sets status.conditions[Ready]=False",
       "Verify all integration tests pass"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "final-validation",
@@ -533,7 +559,8 @@
       "Verify the filter evaluation order matches Section 6.2",
       "Verify the graceful shutdown order matches Section 2.6"
     ],
-    "status": "failed"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "fix-setup-project-deps",
@@ -661,7 +688,7 @@
       "Write unit tests using fake client-go clients for each gatherer",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-analyzer-framework",
@@ -693,7 +720,7 @@
       "Write unit tests with mock HTTP servers for canned LLM responses",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-sink-framework",
@@ -774,7 +801,7 @@
       "Write unit tests for startup sequence and shutdown ordering",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-main-entrypoint",
