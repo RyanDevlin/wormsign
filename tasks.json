@@ -166,7 +166,7 @@
       "Write unit tests for cooldown behavior, deduplication, and registry operations",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
