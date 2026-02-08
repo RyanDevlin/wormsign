@@ -62,7 +62,7 @@ func NewWebhookSink(cfg WebhookConfig, logger *slog.Logger) (*WebhookSink, error
 	}
 
 	return &WebhookSink{
-		client:         &http.Client{},
+		client:         noRedirectHTTPClient(),
 		url:            cfg.URL,
 		headers:        headers,
 		severityFilter: cfg.SeverityFilter,

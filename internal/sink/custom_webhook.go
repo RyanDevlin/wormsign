@@ -99,7 +99,7 @@ func NewCustomWebhookSink(cfg CustomWebhookConfig, logger *slog.Logger) (*Custom
 	}
 
 	return &CustomWebhookSink{
-		client:         &http.Client{},
+		client:         noRedirectHTTPClient(),
 		name:           sinkName,
 		url:            cfg.URL,
 		method:         method,

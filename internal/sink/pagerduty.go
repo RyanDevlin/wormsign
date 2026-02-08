@@ -45,7 +45,7 @@ func NewPagerDutySink(cfg PagerDutyConfig, logger *slog.Logger) (*PagerDutySink,
 	}
 
 	return &PagerDutySink{
-		client:         &http.Client{},
+		client:         noRedirectHTTPClient(),
 		routingKey:     cfg.RoutingKey,
 		severityFilter: cfg.SeverityFilter,
 		logger:         logger,

@@ -3,6 +3,7 @@ package sink
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -109,9 +110,13 @@ func isBlockedHostname(hostname string) bool {
 	}
 
 	// Block metadata service endpoints used in cloud environments.
+	// AWS: 169.254.169.254 (IP blocked separately), fd00:ec2::254
+	// GCP: metadata.google.internal, metadata.google
+	// Azure: metadata.azure.com
 	metadataHosts := []string{
 		"metadata.google.internal",
 		"metadata.google",
+		"metadata.azure.com",
 	}
 	for _, meta := range metadataHosts {
 		if lower == meta {
@@ -154,4 +159,15 @@ func ValidateBuiltInURL(sinkType, rawURL string) error {
 	}
 
 	return fmt.Errorf("ssrf: hostname %q is not an allowed %s domain", hostname, sinkType)
+}
+
+// noRedirectHTTPClient returns an http.Client that refuses to follow redirects.
+// This prevents SSRF bypass via open redirects on allowed domains redirecting
+// to internal services.
+func noRedirectHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return fmt.Errorf("ssrf: redirects are not allowed for webhook sinks")
+		},
+	}
 }

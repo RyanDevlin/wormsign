@@ -51,7 +51,7 @@ func NewSlackSink(cfg SlackConfig, logger *slog.Logger) (*SlackSink, error) {
 	}
 
 	return &SlackSink{
-		client:         &http.Client{},
+		client:         noRedirectHTTPClient(),
 		webhookURL:     cfg.WebhookURL,
 		channel:        cfg.Channel,
 		severityFilter: cfg.SeverityFilter,

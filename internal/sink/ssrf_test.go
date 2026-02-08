@@ -118,6 +118,13 @@ func TestSSRFValidator_ValidateURL(t *testing.T) {
 			wantErr:        true,
 			errContains:    "blocked hostname",
 		},
+		{
+			name:           "azure metadata endpoint rejected",
+			allowedDomains: []string{"*"},
+			url:            "https://metadata.azure.com/metadata/identity",
+			wantErr:        true,
+			errContains:    "blocked hostname",
+		},
 	}
 
 	for _, tt := range tests {
@@ -208,6 +215,7 @@ func TestIsBlockedHostname(t *testing.T) {
 		"ip6-loopback",
 		"metadata.google.internal",
 		"metadata.google",
+		"metadata.azure.com",
 	}
 	for _, h := range blocked {
 		if !isBlockedHostname(h) {
@@ -224,6 +232,23 @@ func TestIsBlockedHostname(t *testing.T) {
 		if isBlockedHostname(h) {
 			t.Errorf("isBlockedHostname(%q) = true, want false", h)
 		}
+	}
+}
+
+func TestNoRedirectHTTPClient(t *testing.T) {
+	client := noRedirectHTTPClient()
+	if client == nil {
+		t.Fatal("noRedirectHTTPClient returned nil")
+	}
+	if client.CheckRedirect == nil {
+		t.Fatal("CheckRedirect must be set")
+	}
+	err := client.CheckRedirect(nil, nil)
+	if err == nil {
+		t.Fatal("CheckRedirect should return error to block redirects")
+	}
+	if !contains(err.Error(), "redirects are not allowed") {
+		t.Errorf("error %q should mention redirects", err.Error())
 	}
 }
 
