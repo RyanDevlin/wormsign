@@ -644,7 +644,7 @@
       "Write unit tests for each rule, window expiry, edge cases",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "done"
   },
   {
     "id": "fix-implement-gatherer-framework",
