@@ -415,7 +415,7 @@
       "Write unit tests for startup sequence and shutdown ordering",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "implement-main-entrypoint",
