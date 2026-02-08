@@ -1,0 +1,218 @@
+# K8s Wormsign Helm Values — Full Reference with Defaults
+# See PROJECT_SPEC.md Section 10 for detailed documentation.
+
+# --- Image configuration ---
+image:
+  repository: ghcr.io/k8s-wormsign/k8s-wormsign
+  tag: ""  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# --- Replica and scaling ---
+replicaCount: 1
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# --- Name overrides ---
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Pod configuration ---
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# --- Service Account ---
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# --- Leader election ---
+leaderElection:
+  enabled: true
+  leaseDuration: 15s
+  renewDeadline: 10s
+  retryPeriod: 2s
+
+# --- Logging ---
+logging:
+  level: info           # debug, info, warn, error
+  format: json
+
+# --- Global filters ---
+filters:
+  excludeNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+  excludeNamespaceSelector: {}
+
+# --- Detectors ---
+detectors:
+  podStuckPending:
+    enabled: true
+    threshold: 15m
+    cooldown: 30m
+  podCrashLoop:
+    enabled: true
+    threshold: 3
+    cooldown: 30m
+  podFailed:
+    enabled: true
+    ignoreExitCodes: [0]
+    cooldown: 30m
+  nodeNotReady:
+    enabled: true
+    threshold: 5m
+    cooldown: 30m
+  pvcStuckBinding:
+    enabled: false
+    threshold: 10m
+    cooldown: 30m
+  highPodCount:
+    enabled: false
+    threshold: 200
+    cooldown: 1h
+  jobDeadlineExceeded:
+    enabled: false
+    cooldown: 30m
+
+# --- Correlation ---
+correlation:
+  enabled: true
+  windowDuration: 2m
+  rules:
+    nodeCascade:
+      enabled: true
+      minPodFailures: 2
+    deploymentRollout:
+      enabled: true
+      minPodFailures: 3
+    storageCascade:
+      enabled: true
+    namespaceStorm:
+      enabled: true
+      threshold: 20
+
+# --- Gatherers ---
+gatherers:
+  podLogs:
+    enabled: true
+    tailLines: 100
+    includePrevious: true
+    redactPatterns: []        # additional patterns; defaults always active
+  karpenterState:
+    enabled: true             # auto-disabled if Karpenter CRDs not found
+  nodeConditions:
+    enabled: true
+    includeAllocatable: true
+  superEvent:
+    maxAffectedResources: 5
+
+# --- Analyzer ---
+analyzer:
+  backend: claude             # claude, claude-bedrock, openai, azure-openai, noop
+  systemPromptOverride: ""
+  systemPromptAppend: ""
+  rateLimiting:
+    dailyTokenBudget: 1000000
+    hourlyTokenBudget: 100000
+  circuitBreaker:
+    consecutiveFailures: 5
+    openDuration: 10m
+  claude:
+    model: claude-sonnet-4-5-20250929
+    apiKeySecret:
+      name: wormsign-api-keys
+      key: anthropic-api-key
+    maxTokens: 4096
+    temperature: 0.0
+  claudeBedrock:
+    region: us-east-1
+    modelId: anthropic.claude-sonnet-4-5-20250929-v1:0
+  openai:
+    model: gpt-4o
+    apiKeySecret:
+      name: wormsign-api-keys
+      key: openai-api-key
+    maxTokens: 4096
+    temperature: 0.0
+  azureOpenai:
+    endpoint: ""
+    deploymentName: ""
+    apiKeySecret:
+      name: wormsign-api-keys
+      key: azure-openai-key
+
+# --- Sinks ---
+sinks:
+  # log sink is always enabled, not configurable
+  slack:
+    enabled: false
+    webhookSecret:
+      name: wormsign-sink-secrets
+      key: slack-webhook-url
+    channel: ""
+    severityFilter: [critical, warning]
+    templateOverride: ""
+  pagerduty:
+    enabled: false
+    routingKeySecret:
+      name: wormsign-sink-secrets
+      key: pagerduty-routing-key
+    severityFilter: [critical]
+  s3:
+    enabled: false
+    bucket: ""
+    region: ""
+    prefix: "wormsign/reports/"
+  webhook:
+    enabled: false
+    url: ""
+    headers: {}
+    severityFilter: [critical, warning, info]
+    allowedDomains: []
+  kubernetesEvent:
+    enabled: true
+    severityFilter: [critical, warning]
+
+# --- Pipeline workers ---
+pipeline:
+  workers:
+    gathering: 5
+    analysis: 2
+    sink: 3
+
+# --- Metrics ---
+metrics:
+  enabled: true
+  port: 8080
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    additionalLabels: {}
+
+# --- Health probes ---
+health:
+  port: 8081

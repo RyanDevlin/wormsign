@@ -1,0 +1,74 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "wormsign.fullname" . }}
+  labels:
+    {{- include "wormsign.labels" . | nindent 4 }}
+rules:
+  # Pod detection (metadata-only informers) and log gathering
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Diagnostic gathering and Kubernetes Event sink
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch", "create"]
+  # Node condition detection and gathering
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # PVC/PV status gathering
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  # Namespace filtering and shard assignment
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Shard map storage
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  # Leader election
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  # Owner reference resolution and status gathering
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  # Custom detector loading and status reporting
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsigndetectors"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsigndetectors/status"]
+    verbs: ["update"]
+  # Custom gatherer loading and status reporting
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsigngatherers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsigngatherers/status"]
+    verbs: ["update"]
+  # Custom sink loading and status reporting
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsignsinks"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsignsinks/status"]
+    verbs: ["update"]
+  # Filter policy loading and status reporting
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsignpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["wormsign.io"]
+    resources: ["wormsignpolicies/status"]
+    verbs: ["update"]
+  # Karpenter state gathering (if Karpenter is installed)
+  - apiGroups: ["karpenter.sh"]
+    resources: ["nodepools", "nodeclaims"]
+    verbs: ["get", "list", "watch"]

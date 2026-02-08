@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "wormsign.fullname" . }}
+  namespace: {{ include "wormsign.namespace" . }}
+  labels:
+    {{- include "wormsign.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  type: ClusterIP
+  ports:
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
+    - name: health
+      port: {{ .Values.health.port }}
+      targetPort: health
+      protocol: TCP
+  selector:
+    {{- include "wormsign.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: controller

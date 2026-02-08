@@ -1,0 +1,24 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "wormsign.fullname" . }}
+  namespace: {{ include "wormsign.namespace" . }}
+  labels:
+    {{- include "wormsign.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "wormsign.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - {{ include "wormsign.namespace" . }}
+{{- end }}

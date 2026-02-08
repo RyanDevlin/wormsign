@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "wormsign.configMapName" . }}
+  namespace: {{ include "wormsign.namespace" . }}
+  labels:
+    {{- include "wormsign.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    replicaCount: {{ .Values.replicaCount }}
+
+    logging:
+      level: {{ .Values.logging.level | quote }}
+      format: {{ .Values.logging.format | quote }}
+
+    leaderElection:
+      enabled: {{ .Values.leaderElection.enabled }}
+      leaseDuration: {{ .Values.leaderElection.leaseDuration | quote }}
+      renewDeadline: {{ .Values.leaderElection.renewDeadline | quote }}
+      retryPeriod: {{ .Values.leaderElection.retryPeriod | quote }}
+
+    filters:
+      excludeNamespaces:
+        {{- toYaml .Values.filters.excludeNamespaces | nindent 8 }}
+      excludeNamespaceSelector:
+        {{- toYaml .Values.filters.excludeNamespaceSelector | nindent 8 }}
+
+    detectors:
+      podStuckPending:
+        enabled: {{ .Values.detectors.podStuckPending.enabled }}
+        threshold: {{ .Values.detectors.podStuckPending.threshold | quote }}
+        cooldown: {{ .Values.detectors.podStuckPending.cooldown | quote }}
+      podCrashLoop:
+        enabled: {{ .Values.detectors.podCrashLoop.enabled }}
+        threshold: {{ .Values.detectors.podCrashLoop.threshold }}
+        cooldown: {{ .Values.detectors.podCrashLoop.cooldown | quote }}
+      podFailed:
+        enabled: {{ .Values.detectors.podFailed.enabled }}
+        ignoreExitCodes:
+          {{- toYaml .Values.detectors.podFailed.ignoreExitCodes | nindent 10 }}
+        cooldown: {{ .Values.detectors.podFailed.cooldown | quote }}
+      nodeNotReady:
+        enabled: {{ .Values.detectors.nodeNotReady.enabled }}
+        threshold: {{ .Values.detectors.nodeNotReady.threshold | quote }}
+        cooldown: {{ .Values.detectors.nodeNotReady.cooldown | quote }}
+      pvcStuckBinding:
+        enabled: {{ .Values.detectors.pvcStuckBinding.enabled }}
+        threshold: {{ .Values.detectors.pvcStuckBinding.threshold | quote }}
+        cooldown: {{ .Values.detectors.pvcStuckBinding.cooldown | quote }}
+      highPodCount:
+        enabled: {{ .Values.detectors.highPodCount.enabled }}
+        threshold: {{ .Values.detectors.highPodCount.threshold }}
+        cooldown: {{ .Values.detectors.highPodCount.cooldown | quote }}
+      jobDeadlineExceeded:
+        enabled: {{ .Values.detectors.jobDeadlineExceeded.enabled }}
+        cooldown: {{ .Values.detectors.jobDeadlineExceeded.cooldown | quote }}
+
+    correlation:
+      enabled: {{ .Values.correlation.enabled }}
+      windowDuration: {{ .Values.correlation.windowDuration | quote }}
+      rules:
+        nodeCascade:
+          enabled: {{ .Values.correlation.rules.nodeCascade.enabled }}
+          minPodFailures: {{ .Values.correlation.rules.nodeCascade.minPodFailures }}
+        deploymentRollout:
+          enabled: {{ .Values.correlation.rules.deploymentRollout.enabled }}
+          minPodFailures: {{ .Values.correlation.rules.deploymentRollout.minPodFailures }}
+        storageCascade:
+          enabled: {{ .Values.correlation.rules.storageCascade.enabled }}
+        namespaceStorm:
+          enabled: {{ .Values.correlation.rules.namespaceStorm.enabled }}
+          threshold: {{ .Values.correlation.rules.namespaceStorm.threshold }}
+
+    gatherers:
+      podLogs:
+        enabled: {{ .Values.gatherers.podLogs.enabled }}
+        tailLines: {{ .Values.gatherers.podLogs.tailLines }}
+        includePrevious: {{ .Values.gatherers.podLogs.includePrevious }}
+        {{- if .Values.gatherers.podLogs.redactPatterns }}
+        redactPatterns:
+          {{- toYaml .Values.gatherers.podLogs.redactPatterns | nindent 10 }}
+        {{- end }}
+      karpenterState:
+        enabled: {{ .Values.gatherers.karpenterState.enabled }}
+      nodeConditions:
+        enabled: {{ .Values.gatherers.nodeConditions.enabled }}
+        includeAllocatable: {{ .Values.gatherers.nodeConditions.includeAllocatable }}
+      superEvent:
+        maxAffectedResources: {{ .Values.gatherers.superEvent.maxAffectedResources }}
+
+    analyzer:
+      backend: {{ .Values.analyzer.backend | quote }}
+      {{- if .Values.analyzer.systemPromptOverride }}
+      systemPromptOverride: {{ .Values.analyzer.systemPromptOverride | quote }}
+      {{- end }}
+      {{- if .Values.analyzer.systemPromptAppend }}
+      systemPromptAppend: {{ .Values.analyzer.systemPromptAppend | quote }}
+      {{- end }}
+      rateLimiting:
+        dailyTokenBudget: {{ .Values.analyzer.rateLimiting.dailyTokenBudget | int64 }}
+        hourlyTokenBudget: {{ .Values.analyzer.rateLimiting.hourlyTokenBudget | int64 }}
+      circuitBreaker:
+        consecutiveFailures: {{ .Values.analyzer.circuitBreaker.consecutiveFailures }}
+        openDuration: {{ .Values.analyzer.circuitBreaker.openDuration | quote }}
+
+    sinks:
+      slack:
+        enabled: {{ .Values.sinks.slack.enabled }}
+        {{- if .Values.sinks.slack.channel }}
+        channel: {{ .Values.sinks.slack.channel | quote }}
+        {{- end }}
+        severityFilter:
+          {{- toYaml .Values.sinks.slack.severityFilter | nindent 10 }}
+      pagerduty:
+        enabled: {{ .Values.sinks.pagerduty.enabled }}
+        severityFilter:
+          {{- toYaml .Values.sinks.pagerduty.severityFilter | nindent 10 }}
+      s3:
+        enabled: {{ .Values.sinks.s3.enabled }}
+        {{- if .Values.sinks.s3.bucket }}
+        bucket: {{ .Values.sinks.s3.bucket | quote }}
+        {{- end }}
+        {{- if .Values.sinks.s3.region }}
+        region: {{ .Values.sinks.s3.region | quote }}
+        {{- end }}
+        prefix: {{ .Values.sinks.s3.prefix | quote }}
+      webhook:
+        enabled: {{ .Values.sinks.webhook.enabled }}
+        {{- if .Values.sinks.webhook.url }}
+        url: {{ .Values.sinks.webhook.url | quote }}
+        {{- end }}
+        severityFilter:
+          {{- toYaml .Values.sinks.webhook.severityFilter | nindent 10 }}
+        {{- if .Values.sinks.webhook.allowedDomains }}
+        allowedDomains:
+          {{- toYaml .Values.sinks.webhook.allowedDomains | nindent 10 }}
+        {{- end }}
+      kubernetesEvent:
+        enabled: {{ .Values.sinks.kubernetesEvent.enabled }}
+        severityFilter:
+          {{- toYaml .Values.sinks.kubernetesEvent.severityFilter | nindent 10 }}
+
+    pipeline:
+      workers:
+        gathering: {{ .Values.pipeline.workers.gathering }}
+        analysis: {{ .Values.pipeline.workers.analysis }}
+        sink: {{ .Values.pipeline.workers.sink }}
+
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      port: {{ .Values.metrics.port }}
+
+    health:
+      port: {{ .Values.health.port }}
