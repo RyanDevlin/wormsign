@@ -561,7 +561,7 @@
       "Write unit tests for loading, defaults, and validation edge cases",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-redact",
