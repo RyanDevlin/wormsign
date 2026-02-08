@@ -785,7 +785,7 @@
       "Write unit tests for CRD lifecycle and invalid CRD handling",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 3
   },
   {
