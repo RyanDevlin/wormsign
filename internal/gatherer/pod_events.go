@@ -50,7 +50,7 @@ func (g *PodEvents) Gather(ctx context.Context, ref model.ResourceRef) (*model.D
 
 	for _, e := range events.Items {
 		ts := e.LastTimestamp.Time
-		if ts.IsZero() && e.EventTime.Time.IsZero() == false {
+		if ts.IsZero() && !e.EventTime.Time.IsZero() {
 			ts = e.EventTime.Time
 		}
 		b.WriteString(fmt.Sprintf("  %s  %s  %s: %s",
