@@ -799,7 +799,7 @@
       "Create configmap.yaml, service.yaml, servicemonitor.yaml (gated by metrics.serviceMonitor.enabled)",
       "Verify helm lint passes and helm template renders valid YAML"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-add-comprehensive-tests",
