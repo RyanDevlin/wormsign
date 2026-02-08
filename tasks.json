@@ -451,7 +451,7 @@
       "Verify helm lint passes on the chart",
       "Verify helm template renders correctly with default values"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "add-unit-tests",
