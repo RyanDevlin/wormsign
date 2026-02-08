@@ -26,11 +26,10 @@ import (
 	"github.com/k8s-wormsign/k8s-wormsign/internal/metrics"
 )
 
-const (
-	// metricsPort is the default port for the Prometheus metrics endpoint.
-	metricsPort = 8080
-	// healthPort is the default port for health probe endpoints.
-	healthPort = 8081
+// Version information, set at build time via ldflags.
+var (
+	version = "dev"
+	commit  = "unknown"
 )
 
 func main() {
@@ -39,7 +38,16 @@ func main() {
 		"path to the controller configuration YAML file")
 	kubeconfig := flag.String("kubeconfig", os.Getenv("KUBECONFIG"),
 		"path to kubeconfig file (for out-of-cluster development)")
+	dryRun := flag.Bool("dry-run", false,
+		"validate configuration and exit without starting the controller")
+	showVersion := flag.Bool("version", false,
+		"print version information and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("wormsign-controller %s (commit: %s)\n", version, commit)
+		return
+	}
 
 	// Bootstrap logger (JSON/info) — will be reconfigured after config load.
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -47,28 +55,20 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	logger.Info("starting wormsign controller", "version", "dev")
+	logger.Info("starting wormsign controller", "version", version, "commit", commit)
 
-	if err := run(logger, *configPath, *kubeconfig); err != nil {
+	if err := run(logger, *configPath, *kubeconfig, *dryRun); err != nil {
 		logger.Error("controller exited with error", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger, configPath, kubeconfig string) error {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
+func run(logger *slog.Logger, configPath, kubeconfig string, dryRun bool) error {
 	// --- Load and validate configuration ---
 	logger.Info("loading configuration", "path", configPath)
-	cfg, err := config.LoadFile(configPath)
+	cfg, err := config.LoadAndValidate(configPath)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
-	}
-	cfg.ApplyDefaults()
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	// --- Reconfigure logger based on loaded config ---
@@ -82,6 +82,15 @@ func run(logger *slog.Logger, configPath, kubeconfig string) error {
 		"logFormat", cfg.Logging.Format,
 		"analyzerBackend", cfg.Analyzer.Backend,
 	)
+
+	if dryRun {
+		logger.Info("dry-run mode: configuration is valid, exiting")
+		return nil
+	}
+
+	// --- Set up signal handling ---
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
 
 	// --- Build Kubernetes client ---
 	restConfig, err := buildRESTConfig(kubeconfig)
@@ -104,6 +113,7 @@ func run(logger *slog.Logger, configPath, kubeconfig string) error {
 	healthHandler := health.NewHandler(health.WithLogger(logger))
 
 	// --- Start health probe server ---
+	healthPort := cfg.Health.Port
 	healthSrv, err := health.NewServer(healthHandler, healthPort)
 	if err != nil {
 		return fmt.Errorf("creating health server: %w", err)
@@ -115,6 +125,7 @@ func run(logger *slog.Logger, configPath, kubeconfig string) error {
 	}()
 
 	// --- Start metrics server ---
+	metricsPort := cfg.Metrics.Port
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", promhttp.HandlerFor(metricsRegistry, promhttp.HandlerOpts{}))
 	metricsSrv := &http.Server{
