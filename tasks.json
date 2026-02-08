@@ -688,7 +688,8 @@
       "Write unit tests using fake client-go clients for each gatherer",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "fix-implement-analyzer-framework",
