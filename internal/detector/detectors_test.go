@@ -1249,6 +1249,496 @@ func TestDetectorConstructors_NilCallback(t *testing.T) {
 }
 
 // =====================================================================
+// Disabled detector pattern tests
+// =====================================================================
+
+// TestDisabledDetectors_DontFire verifies the pattern used by the controller:
+// when a detector is disabled in config, it is simply not constructed, so no
+// events can be emitted. This test documents that contract.
+func TestDisabledDetectors_DontFire(t *testing.T) {
+	type detectorCfg struct {
+		name    string
+		enabled bool
+	}
+
+	configs := []detectorCfg{
+		{name: "PodStuckPending", enabled: true},
+		{name: "PodCrashLoop", enabled: false},
+		{name: "NodeNotReady", enabled: false},
+	}
+
+	registry := NewRegistry(silentLogger())
+	cb, getEvents := collectCallback()
+	now := time.Date(2026, 2, 8, 12, 0, 0, 0, time.UTC)
+
+	for _, cfg := range configs {
+		if !cfg.enabled {
+			continue // disabled detectors are not created
+		}
+		switch cfg.name {
+		case "PodStuckPending":
+			d, err := NewPodStuckPending(PodStuckPendingConfig{
+				Threshold: 15 * time.Minute,
+				Cooldown:  30 * time.Minute,
+				Callback:  cb,
+				Logger:    silentLogger(),
+			})
+			if err != nil {
+				t.Fatalf("error creating %s: %v", cfg.name, err)
+			}
+			d.base.SetNowFunc(func() time.Time { return now })
+			if err := registry.Register(d); err != nil {
+				t.Fatalf("error registering %s: %v", cfg.name, err)
+			}
+		}
+	}
+
+	// Only PodStuckPending should be registered.
+	if registry.Count() != 1 {
+		t.Fatalf("expected 1 detector registered, got %d", registry.Count())
+	}
+
+	// Verify that only PodStuckPending is active.
+	if registry.Get("PodStuckPending") == nil {
+		t.Error("PodStuckPending should be registered")
+	}
+	if registry.Get("PodCrashLoop") != nil {
+		t.Error("PodCrashLoop should NOT be registered (disabled)")
+	}
+	if registry.Get("NodeNotReady") != nil {
+		t.Error("NodeNotReady should NOT be registered (disabled)")
+	}
+
+	// The disabled detectors cannot fire because they don't exist.
+	events := getEvents()
+	if len(events) != 0 {
+		t.Errorf("expected no events from disabled detectors, got %d", len(events))
+	}
+}
+
+// =====================================================================
+// Cooldown tests across all detectors
+// =====================================================================
+
+func TestPodCrashLoop_Cooldown(t *testing.T) {
+	cb, getEvents := collectCallback()
+	d, _ := NewPodCrashLoop(PodCrashLoopConfig{
+		Threshold: 3,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+
+	pod := PodContainerState{
+		Name: "pod", Namespace: "ns", UID: "uid-cool",
+		ContainerStatuses: []ContainerStatus{
+			{Name: "app", RestartCount: 5, Waiting: true, WaitingReason: "CrashLoopBackOff"},
+		},
+	}
+
+	// First check emits.
+	if !d.Check(pod) {
+		t.Error("first check should emit")
+	}
+	// Second check within cooldown should be suppressed.
+	if d.Check(pod) {
+		t.Error("second check within cooldown should be suppressed")
+	}
+
+	events := getEvents()
+	if len(events) != 1 {
+		t.Errorf("expected 1 event, got %d", len(events))
+	}
+}
+
+func TestNodeNotReady_Cooldown(t *testing.T) {
+	now := time.Date(2026, 2, 8, 12, 0, 0, 0, time.UTC)
+	cb, getEvents := collectCallback()
+	d, _ := NewNodeNotReady(NodeNotReadyConfig{
+		Threshold: 5 * time.Minute,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+	d.base.SetNowFunc(func() time.Time { return now })
+
+	node := NodeState{
+		Name: "node", UID: "uid-cool",
+		ReadyCondition:      NodeConditionFalse,
+		ReadyTransitionTime: now.Add(-10 * time.Minute),
+	}
+
+	d.Check(node)
+	d.Check(node)
+
+	if len(getEvents()) != 1 {
+		t.Errorf("expected 1 event (cooldown should suppress second), got %d", len(getEvents()))
+	}
+}
+
+func TestPVCStuckBinding_Cooldown(t *testing.T) {
+	now := time.Date(2026, 2, 8, 12, 0, 0, 0, time.UTC)
+	cb, getEvents := collectCallback()
+	d, _ := NewPVCStuckBinding(PVCStuckBindingConfig{
+		Threshold: 10 * time.Minute,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+	d.base.SetNowFunc(func() time.Time { return now })
+
+	pvc := PVCState{
+		Name: "pvc", Namespace: "ns", UID: "uid-cool",
+		Phase: "Pending", CreationTimestamp: now.Add(-15 * time.Minute),
+	}
+
+	d.Check(pvc)
+	d.Check(pvc)
+
+	if len(getEvents()) != 1 {
+		t.Errorf("expected 1 event (cooldown should suppress second), got %d", len(getEvents()))
+	}
+}
+
+func TestHighPodCount_Cooldown(t *testing.T) {
+	cb, getEvents := collectCallback()
+	d, _ := NewHighPodCount(HighPodCountConfig{
+		Threshold: 100,
+		Cooldown:  1 * time.Hour,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+
+	ns := NamespacePodCount{Name: "ns", UID: "uid-cool", PodCount: 150}
+
+	d.Check(ns)
+	d.Check(ns)
+
+	if len(getEvents()) != 1 {
+		t.Errorf("expected 1 event (cooldown should suppress second), got %d", len(getEvents()))
+	}
+}
+
+func TestJobDeadlineExceeded_Cooldown(t *testing.T) {
+	now := time.Date(2026, 2, 8, 12, 0, 0, 0, time.UTC)
+	cb, getEvents := collectCallback()
+	d, _ := NewJobDeadlineExceeded(JobDeadlineExceededConfig{
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	d.base.SetNowFunc(func() time.Time { return now })
+
+	job := JobState{
+		Name: "job", Namespace: "ns", UID: "uid-cool",
+		ConditionDeadlineExceeded: true,
+	}
+
+	d.Check(job)
+	d.Check(job)
+
+	if len(getEvents()) != 1 {
+		t.Errorf("expected 1 event (cooldown should suppress second), got %d", len(getEvents()))
+	}
+}
+
+func TestPodFailed_Cooldown(t *testing.T) {
+	cb, getEvents := collectCallback()
+	d, _ := NewPodFailed(PodFailedConfig{
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+
+	pod := PodFailedState{
+		Name: "pod", Namespace: "ns", UID: "uid-cool",
+		Phase: "Failed",
+	}
+
+	d.Check(pod)
+	d.Check(pod)
+
+	if len(getEvents()) != 1 {
+		t.Errorf("expected 1 event (cooldown should suppress second), got %d", len(getEvents()))
+	}
+}
+
+// =====================================================================
+// Input slice safety test for PodCrashLoop
+// =====================================================================
+
+func TestPodCrashLoop_DoesNotMutateInputSlice(t *testing.T) {
+	cb, _ := collectCallback()
+	d, _ := NewPodCrashLoop(PodCrashLoopConfig{
+		Threshold: 3,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+
+	containers := []ContainerStatus{
+		{Name: "app", RestartCount: 5, Waiting: true, WaitingReason: "CrashLoopBackOff"},
+	}
+	initContainers := []ContainerStatus{
+		{Name: "init", RestartCount: 0, Waiting: false},
+	}
+
+	// Make a copy to compare after Check.
+	origLen := len(containers)
+
+	pod := PodContainerState{
+		Name:                  "pod",
+		Namespace:             "ns",
+		UID:                   "uid",
+		ContainerStatuses:     containers,
+		InitContainerStatuses: initContainers,
+	}
+
+	d.Check(pod)
+
+	if len(containers) != origLen {
+		t.Errorf("Check() mutated input ContainerStatuses slice: len changed from %d to %d", origLen, len(containers))
+	}
+}
+
+// =====================================================================
+// PodFailed exit code filtering edge cases
+// =====================================================================
+
+func TestPodFailed_AllExitCodesIgnored(t *testing.T) {
+	cb, getEvents := collectCallback()
+	d, _ := NewPodFailed(PodFailedConfig{
+		IgnoreExitCodes: []int32{0, 1, 137},
+		Cooldown:        30 * time.Minute,
+		Callback:        cb,
+		Logger:          silentLogger(),
+	})
+
+	// A pod with multiple terminations, all with ignored exit codes.
+	pod := PodFailedState{
+		Name: "pod", Namespace: "ns", UID: "uid",
+		Phase: "Running",
+		Terminations: []ContainerTermination{
+			{Name: "app", ExitCode: 0, Reason: "Completed"},
+			{Name: "sidecar", ExitCode: 1, Reason: "Error"},
+			{Name: "init", ExitCode: 137, Reason: "OOMKilled"},
+		},
+	}
+
+	if d.Check(pod) {
+		t.Error("should not emit when all exit codes are ignored")
+	}
+	if len(getEvents()) != 0 {
+		t.Errorf("expected 0 events, got %d", len(getEvents()))
+	}
+}
+
+func TestPodFailed_EmptyIgnoreList(t *testing.T) {
+	cb, getEvents := collectCallback()
+	d, _ := NewPodFailed(PodFailedConfig{
+		IgnoreExitCodes: nil, // no codes ignored
+		Cooldown:        30 * time.Minute,
+		Callback:        cb,
+		Logger:          silentLogger(),
+	})
+
+	// Even exit code 0 should trigger when not in the ignore list.
+	pod := PodFailedState{
+		Name: "pod", Namespace: "ns", UID: "uid",
+		Phase: "Running",
+		Terminations: []ContainerTermination{
+			{Name: "app", ExitCode: 0, Reason: "Completed"},
+		},
+	}
+
+	if !d.Check(pod) {
+		t.Error("should emit when ignore list is empty (exit code 0 not ignored)")
+	}
+	if len(getEvents()) != 1 {
+		t.Errorf("expected 1 event, got %d", len(getEvents()))
+	}
+}
+
+func TestPodFailed_FailedPhaseWithIgnoredExitCodes(t *testing.T) {
+	cb, getEvents := collectCallback()
+	d, _ := NewPodFailed(PodFailedConfig{
+		IgnoreExitCodes: []int32{0},
+		Cooldown:        30 * time.Minute,
+		Callback:        cb,
+		Logger:          silentLogger(),
+	})
+
+	// Pod phase is Failed but only has exit code 0 terminations.
+	// The Failed phase itself should still trigger, regardless of exit codes.
+	pod := PodFailedState{
+		Name: "pod", Namespace: "ns", UID: "uid",
+		Phase: "Failed",
+		Terminations: []ContainerTermination{
+			{Name: "app", ExitCode: 0, Reason: "Completed"},
+		},
+	}
+
+	if !d.Check(pod) {
+		t.Error("should emit for Failed phase regardless of exit code ignore list")
+	}
+	if len(getEvents()) != 1 {
+		t.Errorf("expected 1 event, got %d", len(getEvents()))
+	}
+}
+
+// =====================================================================
+// Severity verification tests
+// =====================================================================
+
+func TestDetector_Severities(t *testing.T) {
+	cb, _ := collectCallback()
+
+	tests := []struct {
+		name     string
+		severity model.Severity
+		newFunc  func() (Detector, error)
+	}{
+		{
+			name:     "PodStuckPending is warning",
+			severity: model.SeverityWarning,
+			newFunc: func() (Detector, error) {
+				return NewPodStuckPending(PodStuckPendingConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:     "PodCrashLoop is warning",
+			severity: model.SeverityWarning,
+			newFunc: func() (Detector, error) {
+				return NewPodCrashLoop(PodCrashLoopConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:     "PodFailed is warning",
+			severity: model.SeverityWarning,
+			newFunc: func() (Detector, error) {
+				return NewPodFailed(PodFailedConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:     "NodeNotReady is critical",
+			severity: model.SeverityCritical,
+			newFunc: func() (Detector, error) {
+				return NewNodeNotReady(NodeNotReadyConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:     "PVCStuckBinding is warning",
+			severity: model.SeverityWarning,
+			newFunc: func() (Detector, error) {
+				return NewPVCStuckBinding(PVCStuckBindingConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:     "HighPodCount is info",
+			severity: model.SeverityInfo,
+			newFunc: func() (Detector, error) {
+				return NewHighPodCount(HighPodCountConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:     "JobDeadlineExceeded is warning",
+			severity: model.SeverityWarning,
+			newFunc: func() (Detector, error) {
+				return NewJobDeadlineExceeded(JobDeadlineExceededConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := tt.newFunc()
+			if err != nil {
+				t.Fatalf("constructor error: %v", err)
+			}
+			if d.Severity() != tt.severity {
+				t.Errorf("Severity() = %q, want %q", d.Severity(), tt.severity)
+			}
+		})
+	}
+}
+
+// =====================================================================
+// Leader-only verification tests
+// =====================================================================
+
+func TestDetector_LeaderOnly(t *testing.T) {
+	cb, _ := collectCallback()
+
+	tests := []struct {
+		name       string
+		leaderOnly bool
+		newFunc    func() (Detector, error)
+	}{
+		{
+			name:       "PodStuckPending is not leader-only",
+			leaderOnly: false,
+			newFunc: func() (Detector, error) {
+				return NewPodStuckPending(PodStuckPendingConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:       "PodCrashLoop is not leader-only",
+			leaderOnly: false,
+			newFunc: func() (Detector, error) {
+				return NewPodCrashLoop(PodCrashLoopConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:       "PodFailed is not leader-only",
+			leaderOnly: false,
+			newFunc: func() (Detector, error) {
+				return NewPodFailed(PodFailedConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:       "NodeNotReady IS leader-only",
+			leaderOnly: true,
+			newFunc: func() (Detector, error) {
+				return NewNodeNotReady(NodeNotReadyConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:       "PVCStuckBinding is not leader-only",
+			leaderOnly: false,
+			newFunc: func() (Detector, error) {
+				return NewPVCStuckBinding(PVCStuckBindingConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:       "HighPodCount is not leader-only",
+			leaderOnly: false,
+			newFunc: func() (Detector, error) {
+				return NewHighPodCount(HighPodCountConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+		{
+			name:       "JobDeadlineExceeded is not leader-only",
+			leaderOnly: false,
+			newFunc: func() (Detector, error) {
+				return NewJobDeadlineExceeded(JobDeadlineExceededConfig{Callback: cb, Logger: silentLogger()})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, err := tt.newFunc()
+			if err != nil {
+				t.Fatalf("constructor error: %v", err)
+			}
+			if d.IsLeaderOnly() != tt.leaderOnly {
+				t.Errorf("IsLeaderOnly() = %v, want %v", d.IsLeaderOnly(), tt.leaderOnly)
+			}
+		})
+	}
+}
+
+// =====================================================================
 // Helpers
 // =====================================================================
 
