@@ -452,7 +452,7 @@
       "Verify the binary builds and runs (with --help or dry-run flag)",
       "Verify go build produces a working binary"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 2
   },
   {
