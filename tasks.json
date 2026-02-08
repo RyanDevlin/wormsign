@@ -399,7 +399,7 @@
       "Write unit tests for leader election callbacks and metric updates",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "implement-controller-lifecycle",
