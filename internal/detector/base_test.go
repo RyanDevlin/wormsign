@@ -262,6 +262,228 @@ func TestBaseDetector_NilLogger(t *testing.T) {
 	}
 }
 
+func TestBaseDetector_ShouldFire_NoHistory(t *testing.T) {
+	cb, _ := collectCallback()
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestShouldFire",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"}
+	if !base.ShouldFire(ref) {
+		t.Error("ShouldFire should return true when no previous event exists")
+	}
+}
+
+func TestBaseDetector_ShouldFire_WithinCooldown(t *testing.T) {
+	cb, _ := collectCallback()
+	now := time.Date(2026, 2, 8, 12, 0, 0, 0, time.UTC)
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestShouldFire",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	base.SetNowFunc(func() time.Time { return now })
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"}
+
+	// Record a fire, then check ShouldFire within the cooldown window.
+	base.RecordFire(ref)
+
+	now = now.Add(10 * time.Minute)
+	base.SetNowFunc(func() time.Time { return now })
+	if base.ShouldFire(ref) {
+		t.Error("ShouldFire should return false within cooldown window")
+	}
+}
+
+func TestBaseDetector_ShouldFire_AfterCooldown(t *testing.T) {
+	cb, _ := collectCallback()
+	now := time.Date(2026, 2, 8, 12, 0, 0, 0, time.UTC)
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestShouldFire",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	base.SetNowFunc(func() time.Time { return now })
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"}
+
+	base.RecordFire(ref)
+
+	// Advance past cooldown.
+	now = now.Add(35 * time.Minute)
+	base.SetNowFunc(func() time.Time { return now })
+	if !base.ShouldFire(ref) {
+		t.Error("ShouldFire should return true after cooldown has elapsed")
+	}
+}
+
+func TestBaseDetector_ShouldFire_DifferentResources(t *testing.T) {
+	cb, _ := collectCallback()
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestShouldFire",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ref1 := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"}
+	ref2 := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-2", UID: "uid-2"}
+
+	base.RecordFire(ref1)
+
+	// Different UID should still be allowed to fire.
+	if !base.ShouldFire(ref2) {
+		t.Error("ShouldFire should return true for a different resource UID")
+	}
+
+	// Same UID should be suppressed.
+	if base.ShouldFire(ref1) {
+		t.Error("ShouldFire should return false for the same resource UID within cooldown")
+	}
+}
+
+func TestBaseDetector_RecordFire_UpdatesDedupState(t *testing.T) {
+	cb, _ := collectCallback()
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestRecordFire",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"}
+
+	if base.DedupEntryCount() != 0 {
+		t.Errorf("expected 0 entries before RecordFire, got %d", base.DedupEntryCount())
+	}
+
+	base.RecordFire(ref)
+
+	if base.DedupEntryCount() != 1 {
+		t.Errorf("expected 1 entry after RecordFire, got %d", base.DedupEntryCount())
+	}
+}
+
+func TestBaseDetector_RecordFire_MultipleResources(t *testing.T) {
+	cb, _ := collectCallback()
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestRecordFire",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	refs := []model.ResourceRef{
+		{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"},
+		{Kind: "Pod", Namespace: "ns", Name: "pod-2", UID: "uid-2"},
+		{Kind: "Pod", Namespace: "ns", Name: "pod-3", UID: "uid-3"},
+	}
+
+	for _, ref := range refs {
+		base.RecordFire(ref)
+	}
+
+	if base.DedupEntryCount() != 3 {
+		t.Errorf("expected 3 entries after RecordFire for 3 resources, got %d", base.DedupEntryCount())
+	}
+}
+
+func TestBaseDetector_ShouldFire_ExactCooldownBoundary(t *testing.T) {
+	cb, _ := collectCallback()
+	now := time.Date(2026, 2, 8, 12, 0, 0, 0, time.UTC)
+	cooldown := 30 * time.Minute
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestBoundary",
+		Severity: model.SeverityWarning,
+		Cooldown: cooldown,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	base.SetNowFunc(func() time.Time { return now })
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"}
+	base.RecordFire(ref)
+
+	// Exactly at cooldown boundary: elapsed == cooldown, so cooldown has not elapsed
+	// (condition is now.Sub(lastTime) < b.cooldown, so equal means NOT suppressed).
+	now = now.Add(cooldown)
+	base.SetNowFunc(func() time.Time { return now })
+	if !base.ShouldFire(ref) {
+		t.Error("ShouldFire should return true when elapsed == cooldown (cooldown has passed)")
+	}
+
+	// Just under cooldown boundary.
+	base.RecordFire(ref)
+	now = now.Add(cooldown - time.Nanosecond)
+	base.SetNowFunc(func() time.Time { return now })
+	if base.ShouldFire(ref) {
+		t.Error("ShouldFire should return false when elapsed is 1ns less than cooldown")
+	}
+}
+
+func TestBaseDetector_ShouldFire_DoesNotModifyState(t *testing.T) {
+	cb, _ := collectCallback()
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestNoModify",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod-1", UID: "uid-1"}
+
+	// ShouldFire should not create dedup entries.
+	base.ShouldFire(ref)
+	if base.DedupEntryCount() != 0 {
+		t.Error("ShouldFire should not modify dedup state")
+	}
+
+	// After RecordFire, ShouldFire should still not create new entries.
+	base.RecordFire(ref)
+	countBefore := base.DedupEntryCount()
+	base.ShouldFire(ref)
+	if base.DedupEntryCount() != countBefore {
+		t.Error("ShouldFire should not modify dedup state")
+	}
+}
+
 // containsStr checks if s contains substr.
 func containsStr(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {

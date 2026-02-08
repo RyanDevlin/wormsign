@@ -106,10 +106,11 @@ func (b *BaseDetector) SetNowFunc(fn func() time.Time) {
 	b.nowFunc = fn
 }
 
-// Emit creates and delivers a FaultEvent if the cooldown window has elapsed
-// for the given resource. Returns true if the event was emitted, false if it
-// was suppressed by cooldown/dedup.
-func (b *BaseDetector) Emit(resource model.ResourceRef, description string, labels, annotations map[string]string) bool {
+// ShouldFire checks whether a fault event should fire for the given resource.
+// It returns true if the cooldown window has elapsed (or no prior event exists)
+// for the (DetectorName, Resource.UID) pair, false if the event should be
+// suppressed by cooldown/dedup.
+func (b *BaseDetector) ShouldFire(resource model.ResourceRef) bool {
 	key := dedupKey{
 		DetectorName: b.name,
 		ResourceUID:  resource.UID,
@@ -118,9 +119,10 @@ func (b *BaseDetector) Emit(resource model.ResourceRef, description string, labe
 	now := b.Now()
 
 	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if lastTime, ok := b.lastFired[key]; ok {
 		if now.Sub(lastTime) < b.cooldown {
-			b.mu.Unlock()
 			b.logger.Debug("fault event suppressed by cooldown",
 				"detector", b.name,
 				"resource", resource.String(),
@@ -130,8 +132,33 @@ func (b *BaseDetector) Emit(resource model.ResourceRef, description string, labe
 			return false
 		}
 	}
+	return true
+}
+
+// RecordFire records that a fault event was emitted for the given resource,
+// updating the cooldown state for the (DetectorName, Resource.UID) pair.
+func (b *BaseDetector) RecordFire(resource model.ResourceRef) {
+	key := dedupKey{
+		DetectorName: b.name,
+		ResourceUID:  resource.UID,
+	}
+
+	now := b.Now()
+
+	b.mu.Lock()
 	b.lastFired[key] = now
 	b.mu.Unlock()
+}
+
+// Emit creates and delivers a FaultEvent if the cooldown window has elapsed
+// for the given resource. Returns true if the event was emitted, false if it
+// was suppressed by cooldown/dedup. This is a convenience method that combines
+// ShouldFire, RecordFire, event creation, and callback delivery.
+func (b *BaseDetector) Emit(resource model.ResourceRef, description string, labels, annotations map[string]string) bool {
+	if !b.ShouldFire(resource) {
+		return false
+	}
+	b.RecordFire(resource)
 
 	event, err := model.NewFaultEvent(b.name, b.severity, resource, description, labels, annotations)
 	if err != nil {
