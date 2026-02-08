@@ -295,8 +295,8 @@
       "Test error handling: network errors, invalid JSON responses, rate limit errors",
       "Verify tests pass"
     ],
-    "status": "in_progress",
-    "retry_count": 1
+    "status": "pending",
+    "retry_count": 2
   },
   {
     "id": "implement-sink-interface",
