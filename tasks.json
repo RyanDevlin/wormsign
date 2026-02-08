@@ -384,7 +384,7 @@
       "Write unit tests for: consistent hashing stability, rebalance minimality, single-replica path",
       "Verify tests pass"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 1
   },
   {
