@@ -709,7 +709,7 @@
       "Write unit tests for each sink using mock HTTP servers and fake clients",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-pipeline",
