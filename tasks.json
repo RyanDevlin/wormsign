@@ -128,7 +128,7 @@
       "Write unit tests covering: default patterns, custom patterns, no false positives on normal text, Secret env var redaction",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
