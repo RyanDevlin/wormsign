@@ -110,7 +110,7 @@
       "Write unit tests for each health state combination",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "done"
   },
   {
     "id": "implement-redact",
