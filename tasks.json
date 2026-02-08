@@ -401,8 +401,8 @@
       "Write unit tests for: CRD add/update/delete lifecycle, invalid CRD handling, status updates",
       "Verify tests pass"
     ],
-    "status": "in_progress",
-    "retry_count": 1
+    "status": "pending",
+    "retry_count": 2
   },
   {
     "id": "implement-leader-election",
