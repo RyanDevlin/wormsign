@@ -11,7 +11,7 @@
       "Create a minimal cmd/controller/main.go that compiles (package main, empty main func)",
       "Run go mod tidy and verify the project compiles with go build ./..."
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -44,7 +44,7 @@
       "Create api/v1alpha1/register.go with SchemeBuilder, AddToScheme, and GroupVersion registration",
       "Verify all types compile"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -74,7 +74,7 @@
       "Write unit tests: loading valid config, loading with defaults, validation failures for each invalid case",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -128,7 +128,7 @@
       "Write unit tests covering: default patterns, custom patterns, no false positives on normal text, Secret env var redaction",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -150,7 +150,7 @@
       "Write unit tests for each filter level and short-circuit behavior",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -166,7 +166,7 @@
       "Write unit tests for cooldown behavior, deduplication, and registry operations",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -185,7 +185,7 @@
       "Test that disabled detectors don't fire, cooldown is respected, and exit code filtering works",
       "Verify all tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -203,7 +203,7 @@
       "Write unit tests: valid CEL expressions, invalid expressions (compilation error), cost budget exceeded, params usage, namespace selector matching",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -222,7 +222,7 @@
       "Write unit tests for each correlation rule, window expiry, and edge cases (overlapping rules, single event)",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
@@ -239,7 +239,7 @@
       "Write unit tests for trigger matching, concurrent execution, error handling (failed gatherer populates Error field)",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 1
   },
   {
