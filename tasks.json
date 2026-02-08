@@ -677,7 +677,7 @@
       "Write unit tests for noop, circuit breaker transitions, rate limiter, prompt construction, response parsing",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "done"
   },
   {
     "id": "fix-implement-llm-backends",
