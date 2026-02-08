@@ -336,6 +336,50 @@ func (p *Pipeline) Start(ctx context.Context) error {
 	return nil
 }
 
+// StopAccepting cancels the pipeline context, preventing new fault events
+// from being accepted. This is the first step of the graceful shutdown
+// sequence per Section 2.6. After calling StopAccepting, the caller should
+// stop informers, then call DrainAndShutdown to drain remaining work.
+func (p *Pipeline) StopAccepting() {
+	p.logger.Info("pipeline: stopping acceptance of new fault events")
+	if p.cancel != nil {
+		p.cancel()
+	}
+}
+
+// DrainAndShutdown drains the remaining pipeline stages in order:
+//  1. Flush the correlation window (pending correlated events).
+//  2. Wait for in-flight gathering workers (with GatherTimeout).
+//  3. Wait for in-flight analysis workers (with AnalyzeTimeout).
+//  4. Deliver all pending sink messages (with SinkTimeout).
+//  5. Shut down all queues and wait for workers.
+//
+// This should be called after StopAccepting and after informers are stopped.
+func (p *Pipeline) DrainAndShutdown() {
+	p.logger.Info("pipeline: flushing correlation window")
+	p.correlator.Flush()
+	p.logger.Info("pipeline: correlation window flushed")
+
+	p.logger.Info("pipeline: waiting for gathering workers to drain",
+		"timeout", p.config.GatherTimeout,
+	)
+	p.drainStageWithTimeout(p.queues.Gathering, "gathering", p.config.GatherTimeout)
+
+	p.logger.Info("pipeline: waiting for analysis workers to drain",
+		"timeout", p.config.AnalyzeTimeout,
+	)
+	p.drainAnalysisWithTimeout(p.config.AnalyzeTimeout)
+
+	p.logger.Info("pipeline: waiting for sink delivery workers to drain",
+		"timeout", p.config.SinkTimeout,
+	)
+	p.drainSinkWithTimeout(p.config.SinkTimeout)
+
+	p.queues.ShutDown()
+	p.wg.Wait()
+	p.logger.Info("pipeline: shutdown complete")
+}
+
 // Stop performs a graceful shutdown of the pipeline following the spec's
 // shutdown order:
 //  1. Stop accepting new fault events (close detection queue).
@@ -349,40 +393,11 @@ func (p *Pipeline) Stop() {
 		close(p.stopped)
 		p.logger.Info("pipeline stopping, beginning graceful shutdown")
 
-		// Step 1: Cancel the pipeline context, stopping new event acceptance.
-		if p.cancel != nil {
-			p.cancel()
-		}
+		// Step 1: Stop accepting new events.
+		p.StopAccepting()
 
-		// Step 2: Flush the correlation window.
-		p.logger.Info("flushing correlation window")
-		p.correlator.Flush()
-		p.logger.Info("correlation window flushed")
-
-		// Step 3: Wait for gathering workers to drain.
-		p.logger.Info("waiting for gathering workers to drain",
-			"timeout", p.config.GatherTimeout,
-		)
-		p.drainStageWithTimeout(p.queues.Gathering, "gathering", p.config.GatherTimeout)
-
-		// Step 4: Wait for analysis workers to drain.
-		p.logger.Info("waiting for analysis workers to drain",
-			"timeout", p.config.AnalyzeTimeout,
-		)
-		p.drainAnalysisWithTimeout(p.config.AnalyzeTimeout)
-
-		// Step 5: Wait for sink workers to drain.
-		p.logger.Info("waiting for sink delivery workers to drain",
-			"timeout", p.config.SinkTimeout,
-		)
-		p.drainSinkWithTimeout(p.config.SinkTimeout)
-
-		// Step 6: Shut down all queues.
-		p.queues.ShutDown()
-
-		// Wait for all worker goroutines.
-		p.wg.Wait()
-		p.logger.Info("pipeline stopped")
+		// Steps 2-6: Drain all stages and shut down.
+		p.DrainAndShutdown()
 	})
 }
 

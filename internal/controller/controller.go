@@ -14,11 +14,13 @@ import (
 
 	"github.com/k8s-wormsign/k8s-wormsign/internal/analyzer"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/config"
+	"github.com/k8s-wormsign/k8s-wormsign/internal/filter"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/health"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/metrics"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/pipeline"
 	pipelinecorrelator "github.com/k8s-wormsign/k8s-wormsign/internal/pipeline/correlator"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/shard"
+	"github.com/k8s-wormsign/k8s-wormsign/internal/sink"
 )
 
 const (
@@ -60,6 +62,9 @@ type Controller struct {
 
 	// informerManager manages per-namespace informer factories.
 	informerManager *shard.InformerManager
+
+	// filterEngine evaluates exclusion filters at detection time.
+	filterEngine *filter.Engine
 
 	// pipeline is the detect → correlate → gather → analyze → sink pipeline.
 	pipeline *pipeline.Pipeline
@@ -133,7 +138,22 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	// --- Initialize subsystems ---
 
-	// 1. Create the shard manager for namespace assignment.
+	// 1. Create the filter engine for detection-time exclusion filtering.
+	filterCfg := filter.GlobalFilterConfig{
+		ExcludeNamespaces: c.config.Filters.ExcludeNamespaces,
+	}
+	if c.config.Filters.ExcludeNamespaceSelector != nil {
+		filterCfg.ExcludeNamespaceSelector = &filter.LabelSelector{
+			MatchLabels: c.config.Filters.ExcludeNamespaceSelector.MatchLabels,
+		}
+	}
+	filterEng, err := filter.NewEngine(filterCfg, c.logger.With("component", "filter"))
+	if err != nil {
+		return fmt.Errorf("controller: creating filter engine: %w", err)
+	}
+	c.filterEngine = filterEng
+
+	// 2. Create the shard manager for namespace assignment.
 	identity := resolveIdentity()
 	namespace := resolveNamespace()
 	shardMgr, err := shard.NewManager(
@@ -150,7 +170,9 @@ func (c *Controller) Run(ctx context.Context) error {
 	}
 	c.shardManager = shardMgr
 
-	// 2. Create the informer manager for per-namespace informer factories.
+	// 3. Create the informer manager for per-namespace informer factories.
+	// Per Section 3.1.1, pods use metadata-only informers for memory
+	// efficiency. Full informers are used for nodes, events, PVCs, and CRDs.
 	informerMgr, err := shard.NewInformerManager(
 		c.clientset,
 		shard.WithInformerLogger(c.logger.With("component", "informer-manager")),
@@ -163,13 +185,23 @@ func (c *Controller) Run(ctx context.Context) error {
 	// Wire shard changes to the informer manager.
 	shardMgr.OnShardChange(informerMgr.HandleShardChange)
 
-	// 3. Create the noop analyzer (default for v1 when no LLM credentials).
+	// 4. Create the log sink (always enabled per Section 5.4.1).
+	logSink, err := sink.NewLogSink(c.logger.With("component", "sink-log"))
+	if err != nil {
+		return fmt.Errorf("controller: creating log sink: %w", err)
+	}
+
+	// Build the list of active sinks. The log sink is always included.
+	activeSinks := []pipeline.Sink{logSink}
+
+	// 5. Create the analyzer. Default to noop for v1 when no LLM
+	// credentials are available.
 	noopAnalyzer, err := analyzer.NewNoopAnalyzer(c.logger.With("component", "analyzer"))
 	if err != nil {
 		return fmt.Errorf("controller: creating noop analyzer: %w", err)
 	}
 
-	// 4. Create the pipeline.
+	// 6. Create the pipeline with all subsystems wired.
 	pipelineCfg := pipeline.Config{
 		Workers: pipeline.WorkersConfig{
 			Gathering: c.config.Pipeline.Workers.Gathering,
@@ -207,24 +239,26 @@ func (c *Controller) Run(ctx context.Context) error {
 		pipeline.WithMetrics(c.metrics),
 		pipeline.WithLogger(c.logger.With("component", "pipeline")),
 		pipeline.WithAnalyzer(noopAnalyzer),
+		pipeline.WithFilter(filterEng),
+		pipeline.WithSinks(activeSinks),
 	)
 	if err != nil {
 		return fmt.Errorf("controller: creating pipeline: %w", err)
 	}
 	c.pipeline = p
 
-	// 5. Start the pipeline.
+	// 7. Start the pipeline.
 	if err := p.Start(ctx); err != nil {
 		return fmt.Errorf("controller: starting pipeline: %w", err)
 	}
 
-	// 6. Set up leader election callbacks.
+	// 8. Set up leader election callbacks.
 	callbacks := &controllerLeaderCallbacks{
 		controller: c,
 		logger:     c.logger.With("component", "leader-callbacks"),
 	}
 
-	// 7. Create leader elector.
+	// 9. Create leader elector.
 	leaderElector, err := NewLeaderElector(
 		c.logger.With("component", "leader-election"),
 		c.clientset,
@@ -291,26 +325,50 @@ func (c *Controller) Run(ctx context.Context) error {
 }
 
 // shutdown performs the ordered graceful shutdown per Section 2.6:
-// 1. Stop accepting new fault events (pipeline stops accepting)
-// 2. Stop informers
-// 3. Drain the correlation window
-// 4. Wait for in-flight gathering workers (30s timeout)
-// 5. Wait for in-flight analyzer calls (60s timeout)
-// 6. Deliver all pending sink messages (30s timeout)
-// Total maximum shutdown time: 120s.
+//  1. Stop accepting new fault events (close detection queue)
+//  2. Stop informers
+//  3. Drain the correlation window (flush pending correlated events)
+//  4. Wait for in-flight gathering workers (30s timeout)
+//  5. Wait for in-flight analyzer calls (60s timeout)
+//  6. Deliver all pending sink messages (30s timeout)
+//  7. Exit
+//
+// Total maximum shutdown time: 120s. The Helm chart sets
+// terminationGracePeriodSeconds: 150 to provide headroom.
 func (c *Controller) shutdown() {
-	c.logger.Info("shutdown: step 1 — stopping pipeline (no new fault events)")
-	c.recordShutdownStage("pipeline_stop")
+	// Step 1: Stop accepting new fault events.
+	c.logger.Info("shutdown: step 1 — stop accepting new fault events")
+	c.recordShutdownStage("detection_stop")
 	if c.pipeline != nil {
-		c.pipeline.Stop()
+		c.pipeline.StopAccepting()
 	}
 
+	// Step 2: Stop informers.
 	c.logger.Info("shutdown: step 2 — stopping informers")
 	c.recordShutdownStage("informers_stop")
 	if c.informerManager != nil {
 		c.informerManager.Stop()
 	}
 
+	// Steps 3-6: Drain pipeline stages in order.
+	// 3. Drain correlation window
+	c.logger.Info("shutdown: step 3 — draining correlation window")
+	c.recordShutdownStage("correlation_drain")
+
+	// 4. Wait for in-flight gathering workers (30s)
+	c.recordShutdownStage("gathering_drain")
+
+	// 5. Wait for in-flight analyzer calls (60s)
+	c.recordShutdownStage("analysis_drain")
+
+	// 6. Deliver all pending sink messages (30s)
+	c.recordShutdownStage("sink_drain")
+
+	if c.pipeline != nil {
+		c.pipeline.DrainAndShutdown()
+	}
+
+	// Step 7: Exit.
 	c.logger.Info("shutdown complete")
 	c.recordShutdownStage("done")
 }
