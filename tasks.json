@@ -249,7 +249,7 @@
       "Write unit tests for each gatherer using fake client-go clients",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "implement-analyzer-interface",
