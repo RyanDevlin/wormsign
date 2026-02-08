@@ -366,7 +366,7 @@
       "Write unit tests: full pipeline flow with mock detectors/gatherers/analyzers/sinks",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
