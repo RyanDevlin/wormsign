@@ -72,7 +72,7 @@
       "Write unit tests: loading valid config, loading with defaults, validation failures for each invalid case",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "implement-metrics",
