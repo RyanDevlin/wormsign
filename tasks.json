@@ -611,7 +611,7 @@
       "Write table-driven unit tests for each detector trigger condition and edge cases",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-cel-engine",
