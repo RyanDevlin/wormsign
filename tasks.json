@@ -316,7 +316,7 @@
       "Write unit tests for each sink using mock HTTP servers and fake Kubernetes clients",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "implement-pipeline-queues",
