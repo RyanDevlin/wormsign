@@ -473,8 +473,8 @@
       "Verify helm lint passes on the chart",
       "Verify helm template renders correctly with default values"
     ],
-    "status": "in_progress",
-    "retry_count": 1
+    "status": "pending",
+    "retry_count": 2
   },
   {
     "id": "add-unit-tests",
