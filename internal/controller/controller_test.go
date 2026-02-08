@@ -591,6 +591,7 @@ func TestController_ConcurrentShutdown(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() {
