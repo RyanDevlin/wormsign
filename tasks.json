@@ -627,7 +627,7 @@
       "Write unit tests for valid/invalid expressions, cost budget, params, namespace matching",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "done"
   },
   {
     "id": "fix-implement-correlator",
