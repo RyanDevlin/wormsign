@@ -27,7 +27,7 @@
       "Write unit tests for model constructors and helper methods (e.g., NewFaultEvent with UUID generation)",
       "Verify all types compile and tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "define-crd-types",
