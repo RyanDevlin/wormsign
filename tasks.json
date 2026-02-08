@@ -230,7 +230,7 @@
       "Write unit tests for trigger matching, concurrent execution, error handling (failed gatherer populates Error field)",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "implement-builtin-gatherers",
