@@ -11,7 +11,7 @@
       "Create a minimal cmd/controller/main.go that compiles (package main, empty main func)",
       "Run go mod tidy and verify the project compiles with go build ./..."
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "define-core-models",
@@ -27,7 +27,7 @@
       "Write unit tests for model constructors and helper methods (e.g., NewFaultEvent with UUID generation)",
       "Verify all types compile and tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "define-crd-types",
@@ -43,7 +43,7 @@
       "Create api/v1alpha1/register.go with SchemeBuilder, AddToScheme, and GroupVersion registration",
       "Verify all types compile"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "codegen-deepcopy-crds",
@@ -57,7 +57,7 @@
       "Verify CRD YAML files are valid (4 CRDs: wormsigndetectors, wormsigngatherers, wormsignsinks, wormsignpolicies)",
       "Add generate target to Makefile"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-config",
@@ -72,7 +72,7 @@
       "Write unit tests: loading valid config, loading with defaults, validation failures for each invalid case",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-metrics",
@@ -110,7 +110,7 @@
       "Write unit tests for each health state combination",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-redact",
@@ -125,7 +125,7 @@
       "Write unit tests covering: default patterns, custom patterns, no false positives on normal text, Secret env var redaction",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-filter-engine",
@@ -146,7 +146,7 @@
       "Write unit tests for each filter level and short-circuit behavior",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-detector-interface",
@@ -161,7 +161,7 @@
       "Write unit tests for cooldown behavior, deduplication, and registry operations",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-builtin-detectors",
@@ -179,7 +179,7 @@
       "Test that disabled detectors don't fire, cooldown is respected, and exit code filtering works",
       "Verify all tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-cel-detector",
@@ -196,7 +196,7 @@
       "Write unit tests: valid CEL expressions, invalid expressions (compilation error), cost budget exceeded, params usage, namespace selector matching",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-correlator",
@@ -214,7 +214,7 @@
       "Write unit tests for each correlation rule, window expiry, and edge cases (overlapping rules, single event)",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-gatherer-interface",
@@ -230,7 +230,7 @@
       "Write unit tests for trigger matching, concurrent execution, error handling (failed gatherer populates Error field)",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-builtin-gatherers",
@@ -249,7 +249,7 @@
       "Write unit tests for each gatherer using fake client-go clients",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-analyzer-interface",
@@ -265,7 +265,7 @@
       "Write unit tests for: noop analyzer, circuit breaker state transitions, rate limiter budget tracking, prompt construction, response validation and fallback",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-llm-backends",
@@ -283,7 +283,7 @@
       "Test error handling: network errors, invalid JSON responses, rate limit errors",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-sink-interface",
@@ -300,7 +300,7 @@
       "Write unit tests for: log sink output, severity filtering, retry logic, SSRF domain validation, template rendering",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-builtin-sinks",
@@ -316,7 +316,7 @@
       "Write unit tests for each sink using mock HTTP servers and fake Kubernetes clients",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-pipeline-queues",
@@ -333,7 +333,7 @@
       "Write unit tests for queue operations, priority ordering, and drain behavior",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-pipeline-orchestrator",
@@ -350,7 +350,7 @@
       "Write unit tests: full pipeline flow with mock detectors/gatherers/analyzers/sinks",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-shard-manager",
@@ -367,7 +367,7 @@
       "Write unit tests for: consistent hashing stability, rebalance minimality, single-replica path",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-crd-watchers",
@@ -383,7 +383,7 @@
       "Write unit tests for: CRD add/update/delete lifecycle, invalid CRD handling, status updates",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-leader-election",
@@ -399,7 +399,7 @@
       "Write unit tests for leader election callbacks and metric updates",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-controller-lifecycle",
@@ -415,7 +415,7 @@
       "Write unit tests for startup sequence and shutdown ordering",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "implement-main-entrypoint",
