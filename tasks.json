@@ -295,7 +295,7 @@
       "Test error handling: network errors, invalid JSON responses, rate limit errors",
       "Verify tests pass"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 3
   },
   {
