@@ -28,6 +28,41 @@ const DefaultCostLimit uint64 = 1000
 // defaultCooldown is the default cooldown duration when not specified in the CRD.
 const defaultCooldown = 30 * time.Minute
 
+// Evaluator provides standalone CEL expression compilation for validation.
+// Used by the CRD watcher to validate expressions before full engine loading.
+type Evaluator struct {
+	costLimit uint64
+}
+
+// NewEvaluator creates a new CEL expression evaluator with the given cost limit.
+// If costLimit is 0, DefaultCostLimit is used.
+func NewEvaluator(costLimit uint64) *Evaluator {
+	if costLimit == 0 {
+		costLimit = DefaultCostLimit
+	}
+	return &Evaluator{costLimit: costLimit}
+}
+
+// Compile validates and compiles a CEL expression string. It returns an error
+// if the expression is syntactically or semantically invalid. The expression
+// is compiled against a generic environment suitable for validation.
+func (e *Evaluator) Compile(expression string) (*cel.Ast, error) {
+	// Use a minimal environment with dynamic-typed variables for validation.
+	env, err := cel.NewEnv(
+		cel.Variable("resource", cel.DynType),
+		cel.Variable("params", cel.MapType(cel.StringType, cel.StringType)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating CEL environment: %w", err)
+	}
+
+	ast, issues := env.Compile(expression)
+	if issues != nil && issues.Err() != nil {
+		return nil, fmt.Errorf("compiling CEL expression: %w", issues.Err())
+	}
+	return ast, nil
+}
+
 // supportedResources maps resource type strings to the Kind used in ResourceRef.
 var supportedResources = map[string]string{
 	"pods":                     "Pod",
@@ -203,7 +238,7 @@ func resourceVarName(resourceType string) string {
 	case "replicasets":
 		return "replicaset"
 	case "namespaces":
-		return "namespace"
+		return "ns"
 	default:
 		return resourceType
 	}
