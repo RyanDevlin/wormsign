@@ -348,7 +348,7 @@
       "Write unit tests for queue operations, priority ordering, and drain behavior",
       "Verify tests pass"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 1
   },
   {
