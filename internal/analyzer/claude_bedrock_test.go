@@ -44,6 +44,14 @@ func bedrockSuccessOutput(llmJSON string) *bedrockruntime.InvokeModelOutput {
 	return &bedrockruntime.InvokeModelOutput{Body: body}
 }
 
+func testBedrockConfig() BedrockConfig {
+	return BedrockConfig{
+		Region:    "us-east-1",
+		ModelID:   "anthropic.claude-sonnet-4-5-20250929-v1:0",
+		MaxTokens: 4096,
+	}
+}
+
 // --- NewBedrockAnalyzer via newBedrockAnalyzerWithClient validation ---
 
 func TestNewBedrockAnalyzerWithClient_Validation(t *testing.T) {
@@ -54,35 +62,50 @@ func TestNewBedrockAnalyzerWithClient_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
 		client  BedrockClient
-		modelID string
+		cfg     BedrockConfig
 		prompt  *prompt.Builder
 		wantErr string
 	}{
 		{
 			name:    "nil client",
 			client:  nil,
-			modelID: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			cfg:     testBedrockConfig(),
 			prompt:  p,
 			wantErr: "client must not be nil",
 		},
 		{
-			name:    "empty modelID",
-			client:  client,
-			modelID: "",
+			name:   "empty modelID",
+			client: client,
+			cfg: BedrockConfig{
+				Region:    "us-east-1",
+				ModelID:   "",
+				MaxTokens: 4096,
+			},
 			prompt:  p,
 			wantErr: "modelID must not be empty",
 		},
 		{
+			name:   "zero maxTokens",
+			client: client,
+			cfg: BedrockConfig{
+				Region:    "us-east-1",
+				ModelID:   "anthropic.claude-sonnet-4-5-20250929-v1:0",
+				MaxTokens: 0,
+			},
+			prompt:  p,
+			wantErr: "maxTokens must be > 0",
+		},
+		{
 			name:    "nil prompter",
 			client:  client,
-			modelID: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			cfg:     testBedrockConfig(),
 			prompt:  nil,
 			wantErr: "prompter must not be nil",
 		},
 		{
 			name:    "nil logger",
 			client:  client,
-			modelID: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			cfg:     testBedrockConfig(),
 			prompt:  p,
 			wantErr: "logger must not be nil",
 		},
@@ -93,7 +116,7 @@ func TestNewBedrockAnalyzerWithClient_Validation(t *testing.T) {
 			if tt.name == "nil logger" {
 				logger = nil
 			}
-			_, err := newBedrockAnalyzerWithClient(tt.client, tt.modelID, tt.prompt, logger)
+			_, err := newBedrockAnalyzerWithClient(tt.client, tt.cfg, tt.prompt, logger)
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -105,7 +128,7 @@ func TestNewBedrockAnalyzerWithClient_Validation(t *testing.T) {
 }
 
 func TestNewBedrockAnalyzer_RegionValidation(t *testing.T) {
-	_, err := NewBedrockAnalyzer(context.Background(), BedrockConfig{Region: "", ModelID: "model"}, testPrompter(), testLogger())
+	_, err := NewBedrockAnalyzer(context.Background(), BedrockConfig{Region: "", ModelID: "model", MaxTokens: 4096}, testPrompter(), testLogger())
 	if err == nil {
 		t.Fatal("expected error for empty region")
 	}
@@ -115,7 +138,7 @@ func TestNewBedrockAnalyzer_RegionValidation(t *testing.T) {
 }
 
 func TestNewBedrockAnalyzer_ModelIDValidation(t *testing.T) {
-	_, err := NewBedrockAnalyzer(context.Background(), BedrockConfig{Region: "us-east-1", ModelID: ""}, testPrompter(), testLogger())
+	_, err := NewBedrockAnalyzer(context.Background(), BedrockConfig{Region: "us-east-1", ModelID: "", MaxTokens: 4096}, testPrompter(), testLogger())
 	if err == nil {
 		t.Fatal("expected error for empty modelID")
 	}
@@ -124,9 +147,19 @@ func TestNewBedrockAnalyzer_ModelIDValidation(t *testing.T) {
 	}
 }
 
+func TestNewBedrockAnalyzer_MaxTokensValidation(t *testing.T) {
+	_, err := NewBedrockAnalyzer(context.Background(), BedrockConfig{Region: "us-east-1", ModelID: "model", MaxTokens: 0}, testPrompter(), testLogger())
+	if err == nil {
+		t.Fatal("expected error for zero maxTokens")
+	}
+	if !strings.Contains(err.Error(), "maxTokens must be > 0") {
+		t.Errorf("error = %q", err.Error())
+	}
+}
+
 func TestBedrockAnalyzer_Name(t *testing.T) {
 	client := &mockBedrockClient{}
-	a, err := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, err := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -141,7 +174,7 @@ func TestBedrockAnalyzer_Analyze_Success(t *testing.T) {
 	llmJSON := validLLMResponseJSON()
 	client := &mockBedrockClient{output: bedrockSuccessOutput(llmJSON)}
 
-	a, err := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, err := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -214,9 +247,42 @@ func TestBedrockAnalyzer_Analyze_Success(t *testing.T) {
 	}
 }
 
+func TestBedrockAnalyzer_Analyze_TemperaturePassedThrough(t *testing.T) {
+	llmJSON := validLLMResponseJSON()
+	client := &mockBedrockClient{output: bedrockSuccessOutput(llmJSON)}
+
+	cfg := BedrockConfig{
+		Region:      "us-east-1",
+		ModelID:     "anthropic.claude-sonnet-4-5-20250929-v1:0",
+		MaxTokens:   8192,
+		Temperature: 0.5,
+	}
+	a, err := newBedrockAnalyzerWithClient(client, cfg, testPrompter(), testLogger())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = a.Analyze(context.Background(), testDiagnosticBundle())
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	// Verify request body uses configured values.
+	var reqBody bedrockAnthropicRequest
+	if err := json.Unmarshal(client.lastInput.Body, &reqBody); err != nil {
+		t.Fatalf("parsing request body: %v", err)
+	}
+	if reqBody.MaxTokens != 8192 {
+		t.Errorf("max_tokens = %d, want 8192", reqBody.MaxTokens)
+	}
+	if reqBody.Temperature != 0.5 {
+		t.Errorf("temperature = %f, want 0.5", reqBody.Temperature)
+	}
+}
+
 func TestBedrockAnalyzer_Analyze_InvokeError(t *testing.T) {
 	client := &mockBedrockClient{err: fmt.Errorf("access denied: insufficient permissions")}
-	a, _ := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, _ := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 
 	_, err := a.Analyze(context.Background(), testDiagnosticBundle())
 	if err == nil {
@@ -233,7 +299,7 @@ func TestBedrockAnalyzer_Analyze_MalformedResponse(t *testing.T) {
 			Body: []byte(`{not valid json`),
 		},
 	}
-	a, _ := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, _ := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 
 	_, err := a.Analyze(context.Background(), testDiagnosticBundle())
 	if err == nil {
@@ -256,7 +322,7 @@ func TestBedrockAnalyzer_Analyze_InvalidLLMResponse_Fallback(t *testing.T) {
 	client := &mockBedrockClient{
 		output: &bedrockruntime.InvokeModelOutput{Body: body},
 	}
-	a, _ := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, _ := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 
 	report, err := a.Analyze(context.Background(), testDiagnosticBundle())
 	if err != nil {
@@ -273,7 +339,7 @@ func TestBedrockAnalyzer_Analyze_InvalidLLMResponse_Fallback(t *testing.T) {
 func TestBedrockAnalyzer_Analyze_SuperEvent(t *testing.T) {
 	llmJSON := `{"rootCause": "Node cascade failure", "severity": "critical", "category": "node", "systemic": true, "blastRadius": "All pods on node", "remediation": ["Investigate node"], "relatedResources": [], "confidence": 0.85}`
 	client := &mockBedrockClient{output: bedrockSuccessOutput(llmJSON)}
-	a, _ := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, _ := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 
 	bundle := model.DiagnosticBundle{
 		SuperEvent: &model.SuperEvent{
@@ -309,7 +375,7 @@ func TestBedrockAnalyzer_Analyze_MultipleContentBlocks(t *testing.T) {
 	client := &mockBedrockClient{
 		output: &bedrockruntime.InvokeModelOutput{Body: body},
 	}
-	a, _ := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, _ := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 
 	report, err := a.Analyze(context.Background(), testDiagnosticBundle())
 	if err != nil {
@@ -324,7 +390,7 @@ func TestBedrockAnalyzer_Analyze_MultipleContentBlocks(t *testing.T) {
 
 func TestBedrockAnalyzer_Healthy_WithClient(t *testing.T) {
 	client := &mockBedrockClient{}
-	a, _ := newBedrockAnalyzerWithClient(client, "anthropic.claude-sonnet-4-5-20250929-v1:0", testPrompter(), testLogger())
+	a, _ := newBedrockAnalyzerWithClient(client, testBedrockConfig(), testPrompter(), testLogger())
 
 	if !a.Healthy(context.Background()) {
 		t.Error("Healthy() should return true when client is configured")

@@ -1,5 +1,6 @@
-// Package analyzer — bedrock.go implements the AWS Bedrock analyzer backend
-// for enterprises requiring LLM data residency within AWS. See Section 5.3.2.
+// Package analyzer — claude_bedrock.go implements the AWS Bedrock analyzer
+// backend for enterprises requiring LLM data residency within AWS. See
+// Section 5.3.2.
 package analyzer
 
 import (
@@ -18,10 +19,12 @@ import (
 
 // BedrockAnalyzer uses AWS Bedrock to analyze diagnostic bundles.
 type BedrockAnalyzer struct {
-	client   BedrockClient
-	modelID  string
-	prompter *prompt.Builder
-	logger   *slog.Logger
+	client      BedrockClient
+	modelID     string
+	maxTokens   int
+	temperature float64
+	prompter    *prompt.Builder
+	logger      *slog.Logger
 }
 
 // BedrockClient is the interface for invoking Bedrock models, allowing test
@@ -32,8 +35,10 @@ type BedrockClient interface {
 
 // BedrockConfig holds configuration for the Bedrock analyzer.
 type BedrockConfig struct {
-	Region  string
-	ModelID string
+	Region      string
+	ModelID     string
+	MaxTokens   int
+	Temperature float64
 }
 
 // NewBedrockAnalyzer creates a new Bedrock-backed analyzer.
@@ -44,6 +49,9 @@ func NewBedrockAnalyzer(ctx context.Context, cfg BedrockConfig, prompter *prompt
 	}
 	if cfg.ModelID == "" {
 		return nil, fmt.Errorf("bedrock: modelID must not be empty")
+	}
+	if cfg.MaxTokens <= 0 {
+		return nil, fmt.Errorf("bedrock: maxTokens must be > 0, got %d", cfg.MaxTokens)
 	}
 	if prompter == nil {
 		return nil, fmt.Errorf("bedrock: prompter must not be nil")
@@ -60,21 +68,26 @@ func NewBedrockAnalyzer(ctx context.Context, cfg BedrockConfig, prompter *prompt
 	client := bedrockruntime.NewFromConfig(awsCfg)
 
 	return &BedrockAnalyzer{
-		client:   client,
-		modelID:  cfg.ModelID,
-		prompter: prompter,
-		logger:   logger,
+		client:      client,
+		modelID:     cfg.ModelID,
+		maxTokens:   cfg.MaxTokens,
+		temperature: cfg.Temperature,
+		prompter:    prompter,
+		logger:      logger,
 	}, nil
 }
 
 // newBedrockAnalyzerWithClient creates a BedrockAnalyzer with an injected client
 // (for testing).
-func newBedrockAnalyzerWithClient(client BedrockClient, modelID string, prompter *prompt.Builder, logger *slog.Logger) (*BedrockAnalyzer, error) {
+func newBedrockAnalyzerWithClient(client BedrockClient, cfg BedrockConfig, prompter *prompt.Builder, logger *slog.Logger) (*BedrockAnalyzer, error) {
 	if client == nil {
 		return nil, fmt.Errorf("bedrock: client must not be nil")
 	}
-	if modelID == "" {
+	if cfg.ModelID == "" {
 		return nil, fmt.Errorf("bedrock: modelID must not be empty")
+	}
+	if cfg.MaxTokens <= 0 {
+		return nil, fmt.Errorf("bedrock: maxTokens must be > 0, got %d", cfg.MaxTokens)
 	}
 	if prompter == nil {
 		return nil, fmt.Errorf("bedrock: prompter must not be nil")
@@ -83,10 +96,12 @@ func newBedrockAnalyzerWithClient(client BedrockClient, modelID string, prompter
 		return nil, fmt.Errorf("bedrock: logger must not be nil")
 	}
 	return &BedrockAnalyzer{
-		client:   client,
-		modelID:  modelID,
-		prompter: prompter,
-		logger:   logger,
+		client:      client,
+		modelID:     cfg.ModelID,
+		maxTokens:   cfg.MaxTokens,
+		temperature: cfg.Temperature,
+		prompter:    prompter,
+		logger:      logger,
 	}, nil
 }
 
@@ -119,8 +134,8 @@ func (b *BedrockAnalyzer) Analyze(ctx context.Context, bundle model.DiagnosticBu
 
 	reqBody := bedrockAnthropicRequest{
 		AnthropicVersion: anthropicVersion,
-		MaxTokens:        4096,
-		Temperature:      0.0,
+		MaxTokens:        b.maxTokens,
+		Temperature:      b.temperature,
 		System:           b.prompter.SystemPrompt(),
 		Messages: []claudeMessage{
 			{Role: "user", Content: userPrompt},
