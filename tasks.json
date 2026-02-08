@@ -561,7 +561,7 @@
       "Write unit tests for loading, defaults, and validation edge cases",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-redact",
@@ -627,7 +627,7 @@
       "Write unit tests for valid/invalid expressions, cost budget, params, namespace matching",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-correlator",
@@ -661,7 +661,7 @@
       "Write unit tests using fake client-go clients for each gatherer",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-analyzer-framework",
@@ -677,7 +677,7 @@
       "Write unit tests for noop, circuit breaker transitions, rate limiter, prompt construction, response parsing",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-llm-backends",
@@ -693,7 +693,7 @@
       "Write unit tests with mock HTTP servers for canned LLM responses",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-sink-framework",
@@ -709,7 +709,7 @@
       "Write unit tests for each sink using mock HTTP servers and fake clients",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-pipeline",
@@ -726,7 +726,7 @@
       "Write unit tests for queue operations, priority ordering, full pipeline flow",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-shard-manager",
@@ -774,7 +774,7 @@
       "Write unit tests for startup sequence and shutdown ordering",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-implement-main-entrypoint",
@@ -787,7 +787,7 @@
       "Instantiate and start Controller, block until shutdown signal",
       "Verify go build ./cmd/controller/ produces a working binary"
     ],
-    "status": "in_progress",
+    "status": "pending",
     "retry_count": 2
   },
   {
@@ -802,7 +802,7 @@
       "Create configmap.yaml, service.yaml, servicemonitor.yaml (gated by metrics.serviceMonitor.enabled)",
       "Verify helm lint passes and helm template renders valid YAML"
     ],
-    "status": "in_progress"
+    "status": "pending"
   },
   {
     "id": "fix-add-comprehensive-tests",
