@@ -802,7 +802,8 @@
       "Write unit tests for startup sequence and shutdown ordering",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "pending",
+    "retry_count": 1
   },
   {
     "id": "fix-implement-main-entrypoint",
