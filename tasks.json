@@ -333,7 +333,7 @@
       "Write unit tests for queue operations, priority ordering, and drain behavior",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "implement-pipeline-orchestrator",
