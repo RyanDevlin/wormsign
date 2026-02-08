@@ -37,7 +37,7 @@ echo "=== Installing Helm 3.12+ ==="
 if command -v helm &>/dev/null && helm version --short | grep -qE 'v3\.(1[2-9]|[2-9][0-9])'; then
     echo "Helm $(helm version --short) already installed, skipping."
 else
-    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | USE_SUDO=true bash
     echo "Helm $(helm version --short) installed."
 fi
 
