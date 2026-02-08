@@ -1178,8 +1178,9 @@ func TestCostBudget_DefaultLimit(t *testing.T) {
 
 func TestBuildStatusConditions_Ready(t *testing.T) {
 	result := &LoadDetectorResult{
-		Ready:        true,
-		ReadyMessage: "CEL expression compiled successfully",
+		Ready:             true,
+		ReadyMessage:      "CEL expression compiled successfully",
+		MatchedNamespaces: 0, // no namespace selector → single namespace
 	}
 
 	conditions := BuildStatusConditions(result, 1)
@@ -1218,6 +1219,27 @@ func TestBuildStatusConditions_Ready(t *testing.T) {
 	if activeCond.Status != metav1.ConditionTrue {
 		t.Errorf("Active status = %s, want True", activeCond.Status)
 	}
+	if activeCond.Message != "Watching 1 namespace" {
+		t.Errorf("Active message = %q, want 'Watching 1 namespace'", activeCond.Message)
+	}
+}
+
+func TestBuildStatusConditions_ReadyWithNamespaces(t *testing.T) {
+	result := &LoadDetectorResult{
+		Ready:             true,
+		ReadyMessage:      "CEL expression compiled successfully",
+		MatchedNamespaces: 12,
+	}
+
+	conditions := BuildStatusConditions(result, 1)
+
+	activeCond := findCondition(conditions, v1alpha1.ConditionActive)
+	if activeCond == nil {
+		t.Fatal("Active condition not found")
+	}
+	if activeCond.Message != "Watching 12 namespaces" {
+		t.Errorf("Active message = %q, want 'Watching 12 namespaces'", activeCond.Message)
+	}
 }
 
 func TestBuildStatusConditions_NotReady(t *testing.T) {
@@ -1254,6 +1276,234 @@ func TestBuildStatusConditions_NotReady(t *testing.T) {
 	if activeCond != nil {
 		t.Error("Active condition should not be present for failed compilation")
 	}
+}
+
+// =====================================================================
+// Resource Alias Tests
+// =====================================================================
+
+func TestEvaluateResource_ResourceAlias(t *testing.T) {
+	engine, getEvents := newTestEngine(t)
+	ctx := context.Background()
+
+	// Use "resource" instead of the type-specific "pod" variable.
+	wd := makeDetectorCRD("default", "alias-test", "pods",
+		`resource.status == "Pending"`,
+		v1alpha1.SeverityWarning, nil)
+	result, err := engine.LoadDetector(ctx, wd)
+	if err != nil {
+		t.Fatalf("LoadDetector() error = %v", err)
+	}
+	if !result.Ready {
+		t.Fatalf("Ready = false; message: %s", result.ReadyMessage)
+	}
+
+	emitted := engine.EvaluateResource(
+		"pods", "default", "alias-pod", "uid-alias",
+		map[string]any{"status": "Pending", "name": "alias-pod"},
+		nil, nil,
+	)
+	if emitted != 1 {
+		t.Errorf("emitted = %d, want 1 for resource alias", emitted)
+	}
+	events := getEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+}
+
+// =====================================================================
+// now() Test Clock Tests
+// =====================================================================
+
+func TestCELEnv_NowFunctionUsesEngineClock(t *testing.T) {
+	engine, getEvents := newTestEngine(t)
+	ctx := context.Background()
+
+	// Set the engine's clock to a fixed time in 2020.
+	fixedTime := time.Date(2020, 6, 15, 12, 0, 0, 0, time.UTC)
+	engine.SetNowFunc(func() time.Time { return fixedTime })
+
+	// Expression: now() should be BEFORE 2021. With real time (2026), this would be false.
+	// With our fixed clock (2020), it should be true.
+	wd := makeDetectorCRD("default", "clock-test", "pods",
+		`now() < timestamp("2021-01-01T00:00:00Z")`,
+		v1alpha1.SeverityInfo, nil)
+
+	result, err := engine.LoadDetector(ctx, wd)
+	if err != nil {
+		t.Fatalf("LoadDetector() error = %v", err)
+	}
+	if !result.Ready {
+		t.Fatalf("Ready = false; message: %s", result.ReadyMessage)
+	}
+
+	emitted := engine.EvaluateResource(
+		"pods", "default", "pod-1", "uid-clock",
+		map[string]any{"name": "pod-1"},
+		nil, nil,
+	)
+	if emitted != 1 {
+		t.Errorf("emitted = %d, want 1 (fixed clock is 2020, before 2021)", emitted)
+	}
+	if len(getEvents()) != 1 {
+		t.Error("expected 1 event from test clock expression")
+	}
+}
+
+// =====================================================================
+// CountMatchingNamespaces Tests
+// =====================================================================
+
+func TestCountMatchingNamespaces_NoSelector(t *testing.T) {
+	engine, _ := newTestEngine(t)
+	ctx := context.Background()
+
+	wd := makeDetectorCRD("default", "no-selector", "pods",
+		"true", v1alpha1.SeverityWarning, nil)
+	if _, err := engine.LoadDetector(ctx, wd); err != nil {
+		t.Fatalf("LoadDetector() error = %v", err)
+	}
+
+	count := engine.CountMatchingNamespaces("default", "no-selector", []map[string]string{
+		{"team": "alpha"},
+		{"team": "beta"},
+	})
+	if count != 0 {
+		t.Errorf("CountMatchingNamespaces = %d, want 0 for no selector", count)
+	}
+}
+
+func TestCountMatchingNamespaces_WithSelector(t *testing.T) {
+	engine, _ := newTestEngine(t)
+	ctx := context.Background()
+
+	wd := makeDetectorCRD("wormsign-system", "ns-count", "pods",
+		"true", v1alpha1.SeverityWarning, nil)
+	wd.Spec.NamespaceSelector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"wormsign.io/watch": "true"},
+	}
+	if _, err := engine.LoadDetector(ctx, wd); err != nil {
+		t.Fatalf("LoadDetector() error = %v", err)
+	}
+
+	nsLabelSets := []map[string]string{
+		{"wormsign.io/watch": "true", "team": "alpha"},
+		{"wormsign.io/watch": "false", "team": "beta"},
+		{"wormsign.io/watch": "true", "team": "gamma"},
+		{"team": "delta"},
+	}
+	count := engine.CountMatchingNamespaces("wormsign-system", "ns-count", nsLabelSets)
+	if count != 2 {
+		t.Errorf("CountMatchingNamespaces = %d, want 2", count)
+	}
+}
+
+func TestCountMatchingNamespaces_NonexistentDetector(t *testing.T) {
+	engine, _ := newTestEngine(t)
+
+	count := engine.CountMatchingNamespaces("default", "nonexistent", []map[string]string{
+		{"foo": "bar"},
+	})
+	if count != 0 {
+		t.Errorf("CountMatchingNamespaces = %d, want 0 for nonexistent detector", count)
+	}
+}
+
+// =====================================================================
+// Evaluator (Standalone) Tests
+// =====================================================================
+
+func TestEvaluator_CompileValid(t *testing.T) {
+	eval := NewEvaluator(DefaultCostLimit)
+
+	ast, err := eval.Compile(`resource.name == "test"`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if ast == nil {
+		t.Fatal("AST is nil")
+	}
+}
+
+func TestEvaluator_CompileWithNow(t *testing.T) {
+	eval := NewEvaluator(DefaultCostLimit)
+
+	ast, err := eval.Compile(`now() > timestamp("2020-01-01T00:00:00Z")`)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if ast == nil {
+		t.Fatal("AST is nil")
+	}
+}
+
+func TestEvaluator_CompileInvalid(t *testing.T) {
+	eval := NewEvaluator(DefaultCostLimit)
+
+	_, err := eval.Compile(`this is not valid CEL!!!`)
+	if err == nil {
+		t.Fatal("expected error for invalid expression")
+	}
+}
+
+func TestEvaluator_DefaultCostLimit(t *testing.T) {
+	eval := NewEvaluator(0) // should default to DefaultCostLimit
+	if eval.costLimit != DefaultCostLimit {
+		t.Errorf("costLimit = %d, want %d", eval.costLimit, DefaultCostLimit)
+	}
+}
+
+// =====================================================================
+// Concurrent Access Tests
+// =====================================================================
+
+func TestCELDetectorEngine_ConcurrentAccess(t *testing.T) {
+	engine, _ := newTestEngine(t)
+	ctx := context.Background()
+
+	// Pre-load a detector.
+	wd := makeDetectorCRD("default", "concurrent", "pods",
+		"true", v1alpha1.SeverityWarning, nil)
+	if _, err := engine.LoadDetector(ctx, wd); err != nil {
+		t.Fatalf("LoadDetector() error = %v", err)
+	}
+
+	// Concurrent reads and writes should not panic or race.
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// Concurrent evaluations.
+			engine.EvaluateResource(
+				"pods", "default", fmt.Sprintf("pod-%d", i), fmt.Sprintf("uid-%d", i),
+				map[string]any{"name": fmt.Sprintf("pod-%d", i)},
+				nil, nil,
+			)
+		}(i)
+	}
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// Concurrent loads.
+			name := fmt.Sprintf("conc-det-%d", i)
+			wd := makeDetectorCRD("default", name, "pods",
+				"true", v1alpha1.SeverityWarning, nil)
+			engine.LoadDetector(ctx, wd)
+		}(i)
+	}
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// Concurrent reads.
+			engine.DetectorCount()
+			engine.DetectorNames()
+		}(i)
+	}
+	wg.Wait()
 }
 
 // =====================================================================

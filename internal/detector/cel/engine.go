@@ -45,13 +45,13 @@ func NewEvaluator(costLimit uint64) *Evaluator {
 
 // Compile validates and compiles a CEL expression string. It returns an error
 // if the expression is syntactically or semantically invalid. The expression
-// is compiled against a generic environment suitable for validation.
+// is compiled against a generic environment suitable for validation, including
+// the now() function and params variable.
 func (e *Evaluator) Compile(expression string) (*cel.Ast, error) {
-	// Use a minimal environment with dynamic-typed variables for validation.
-	env, err := cel.NewEnv(
-		cel.Variable("resource", cel.DynType),
-		cel.Variable("params", cel.MapType(cel.StringType, cel.StringType)),
-	)
+	// Use a generic environment with dynamic-typed resource variable for validation.
+	// This matches the full engine environment but uses "resource" as the variable name
+	// since the specific resource type is not known at validation time.
+	env, err := newCELEnv("resource", time.Now)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment: %w", err)
 	}
@@ -194,23 +194,31 @@ func (e *CELDetectorEngine) now() time.Time {
 
 // newCELEnv creates a new CEL environment with the standard Wormsign variables
 // and custom functions: now(), duration(), timestamp(), params.
-func newCELEnv(resourceVar string) (*cel.Env, error) {
+// The nowFunc parameter controls the clock used by the now() CEL function,
+// allowing tests to inject a controllable clock.
+func newCELEnv(resourceVar string, nowFunc func() time.Time) (*cel.Env, error) {
+	if nowFunc == nil {
+		nowFunc = time.Now
+	}
 	return cel.NewEnv(
 		// Resource object exposed as a dynamic-typed map.
 		// This allows CEL expressions to access arbitrary fields from
 		// Kubernetes resource objects without requiring protobuf definitions.
 		cel.Variable(resourceVar, cel.MapType(cel.StringType, cel.DynType)),
 
+		// Also expose as "resource" for generic expressions.
+		cel.Variable("resource", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Params from the CRD spec, available as a string-keyed map.
 		cel.Variable("params", cel.MapType(cel.StringType, cel.StringType)),
 
-		// now() returns the current timestamp.
+		// now() returns the current timestamp using the engine's clock.
 		cel.Function("now",
 			cel.Overload("now_zero",
 				[]*cel.Type{},
 				cel.TimestampType,
 				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
-					return types.Timestamp{Time: time.Now()}
+					return types.Timestamp{Time: nowFunc()}
 				}),
 			),
 		),
@@ -352,7 +360,7 @@ func (e *CELDetectorEngine) LoadDetector(ctx context.Context, wd *v1alpha1.Worms
 
 	// Create CEL environment.
 	varName := resourceVarName(wd.Spec.Resource)
-	env, err := newCELEnv(varName)
+	env, err := newCELEnv(varName, e.nowFunc)
 	if err != nil {
 		return nil, fmt.Errorf("creating CEL environment for detector %s: %w", key, err)
 	}
@@ -550,8 +558,9 @@ func (e *CELDetectorEngine) evaluateDetector(cd *CompiledDetector, resourceData 
 	}
 
 	vars := map[string]any{
-		varName:  resourceData,
-		"params": params,
+		varName:    resourceData,
+		"resource": resourceData, // Also expose as generic "resource" alias.
+		"params":   params,
 	}
 
 	result, _, err := cd.Program.Eval(vars)
@@ -593,6 +602,24 @@ func (e *CELDetectorEngine) DetectorNames() []string {
 	return names
 }
 
+// CountMatchingNamespaces returns the number of namespaces matching the detector's
+// namespace selector. If the detector has no namespace selector (watches only its own
+// namespace), it returns 0. The caller provides a list of namespace label sets.
+func (e *CELDetectorEngine) CountMatchingNamespaces(namespace, name string, namespaceLabelSets []map[string]string) int32 {
+	cd := e.GetDetector(namespace, name)
+	if cd == nil || cd.NamespaceSelector == nil {
+		return 0
+	}
+
+	var count int32
+	for _, nsLabels := range namespaceLabelSets {
+		if cd.NamespaceSelector.Matches(labels.Set(nsLabels)) {
+			count++
+		}
+	}
+	return count
+}
+
 // BuildStatusConditions creates the metav1.Condition entries for a WormsignDetector
 // based on the load result.
 func BuildStatusConditions(result *LoadDetectorResult, generation int64) []metav1.Condition {
@@ -623,13 +650,18 @@ func BuildStatusConditions(result *LoadDetectorResult, generation int64) []metav
 	}
 
 	if result.Ready {
+		activeMsg := fmt.Sprintf("Watching %d namespaces", result.MatchedNamespaces)
+		if result.MatchedNamespaces == 0 {
+			// Namespace-scoped detector (no selector), watches own namespace only.
+			activeMsg = "Watching 1 namespace"
+		}
 		conditions = append(conditions, metav1.Condition{
 			Type:               v1alpha1.ConditionActive,
 			Status:             metav1.ConditionTrue,
 			ObservedGeneration: generation,
 			LastTransitionTime: now,
 			Reason:             "DetectorActive",
-			Message:            "Detector is actively watching resources",
+			Message:            activeMsg,
 		})
 	}
 
