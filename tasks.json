@@ -214,7 +214,7 @@
       "Write unit tests for each correlation rule, window expiry, and edge cases (overlapping rules, single event)",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed"
   },
   {
     "id": "implement-gatherer-interface",
