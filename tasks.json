@@ -300,7 +300,7 @@
       "Write unit tests for: log sink output, severity filtering, retry logic, SSRF domain validation, template rendering",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "implement-builtin-sinks",
