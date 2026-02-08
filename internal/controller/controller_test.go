@@ -126,25 +126,32 @@ func TestController_RunAndShutdown(t *testing.T) {
 		t.Fatal("timed out waiting for Run to return")
 	}
 
-	// Verify shutdown ordering.
+	// Verify shutdown ordering per Section 2.6.
 	order := ctrl.ShutdownOrder()
-	if len(order) < 3 {
-		t.Fatalf("expected at least 3 shutdown stages, got %d: %v", len(order), order)
-	}
 
-	// Expected order: pipeline_stop, informers_stop, done
-	expected := []string{"pipeline_stop", "informers_stop", "done"}
+	// Expected order: 7 stages per Section 2.6 shutdown sequence.
+	expected := []string{
+		"detection_stop",   // Step 1: Stop accepting new fault events
+		"informers_stop",   // Step 2: Stop informers
+		"correlation_drain", // Step 3: Drain correlation window
+		"gathering_drain",  // Step 4: Wait for in-flight gatherers (30s)
+		"analysis_drain",   // Step 5: Wait for in-flight analyzers (60s)
+		"sink_drain",       // Step 6: Deliver pending sink messages (30s)
+		"done",             // Step 7: Exit
+	}
+	if len(order) != len(expected) {
+		t.Fatalf("expected %d shutdown stages, got %d: %v", len(expected), len(order), order)
+	}
 	for i, want := range expected {
-		if i >= len(order) {
-			t.Fatalf("missing shutdown stage %q at index %d", want, i)
-		}
 		if order[i] != want {
 			t.Errorf("shutdown stage[%d] = %q, want %q", i, order[i], want)
 		}
 	}
 }
 
-func TestController_ShutdownOrder_PipelineBeforeInformers(t *testing.T) {
+func TestController_ShutdownOrder_DetectionBeforeInformersBeforeDrain(t *testing.T) {
+	// Verify Section 2.6 ordering: detection stop → informers stop →
+	// correlation drain → gathering drain → analysis drain → sink drain → done.
 	t.Setenv("POD_NAME", "test-pod-order")
 	t.Setenv("POD_NAMESPACE", "default")
 
@@ -175,26 +182,68 @@ func TestController_ShutdownOrder_PipelineBeforeInformers(t *testing.T) {
 
 	order := ctrl.ShutdownOrder()
 
-	// Verify pipeline stops before informers.
-	pipelineIdx := -1
-	informerIdx := -1
+	// Find indices of key stages.
+	stageIndices := make(map[string]int)
 	for i, stage := range order {
-		if stage == "pipeline_stop" {
-			pipelineIdx = i
-		}
-		if stage == "informers_stop" {
-			informerIdx = i
-		}
+		stageIndices[stage] = i
 	}
 
-	if pipelineIdx == -1 {
-		t.Fatal("pipeline_stop not found in shutdown order")
+	// Verify detection stops before informers.
+	detIdx, ok := stageIndices["detection_stop"]
+	if !ok {
+		t.Fatal("detection_stop not found in shutdown order")
 	}
-	if informerIdx == -1 {
+	infIdx, ok := stageIndices["informers_stop"]
+	if !ok {
 		t.Fatal("informers_stop not found in shutdown order")
 	}
-	if pipelineIdx >= informerIdx {
-		t.Errorf("pipeline_stop (index %d) should come before informers_stop (index %d)", pipelineIdx, informerIdx)
+	if detIdx >= infIdx {
+		t.Errorf("detection_stop (index %d) should come before informers_stop (index %d)", detIdx, infIdx)
+	}
+
+	// Verify informers stop before correlation drain.
+	corrIdx, ok := stageIndices["correlation_drain"]
+	if !ok {
+		t.Fatal("correlation_drain not found in shutdown order")
+	}
+	if infIdx >= corrIdx {
+		t.Errorf("informers_stop (index %d) should come before correlation_drain (index %d)", infIdx, corrIdx)
+	}
+
+	// Verify gathering comes after correlation.
+	gathIdx, ok := stageIndices["gathering_drain"]
+	if !ok {
+		t.Fatal("gathering_drain not found in shutdown order")
+	}
+	if corrIdx >= gathIdx {
+		t.Errorf("correlation_drain (index %d) should come before gathering_drain (index %d)", corrIdx, gathIdx)
+	}
+
+	// Verify analysis comes after gathering.
+	analIdx, ok := stageIndices["analysis_drain"]
+	if !ok {
+		t.Fatal("analysis_drain not found in shutdown order")
+	}
+	if gathIdx >= analIdx {
+		t.Errorf("gathering_drain (index %d) should come before analysis_drain (index %d)", gathIdx, analIdx)
+	}
+
+	// Verify sinks come after analysis.
+	sinkIdx, ok := stageIndices["sink_drain"]
+	if !ok {
+		t.Fatal("sink_drain not found in shutdown order")
+	}
+	if analIdx >= sinkIdx {
+		t.Errorf("analysis_drain (index %d) should come before sink_drain (index %d)", analIdx, sinkIdx)
+	}
+
+	// Verify done is last.
+	doneIdx, ok := stageIndices["done"]
+	if !ok {
+		t.Fatal("done not found in shutdown order")
+	}
+	if sinkIdx >= doneIdx {
+		t.Errorf("sink_drain (index %d) should come before done (index %d)", sinkIdx, doneIdx)
 	}
 }
 
@@ -515,6 +564,9 @@ func TestController_RunWithLeaderElection(t *testing.T) {
 	if ctrl.pipeline == nil {
 		t.Error("expected pipeline to be set")
 	}
+	if ctrl.filterEngine == nil {
+		t.Error("expected filterEngine to be set")
+	}
 
 	cancel()
 	select {
@@ -587,6 +639,9 @@ func TestController_SubsystemsAreNilBeforeRun(t *testing.T) {
 	}
 	if ctrl.pipeline != nil {
 		t.Error("pipeline should be nil before Run")
+	}
+	if ctrl.filterEngine != nil {
+		t.Error("filterEngine should be nil before Run")
 	}
 }
 
