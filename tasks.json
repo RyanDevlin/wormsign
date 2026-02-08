@@ -592,7 +592,7 @@
       "Test FilterResult reason strings match spec (namespace_global, namespace_label, etc.)",
       "Verify tests pass"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-detector-framework",
