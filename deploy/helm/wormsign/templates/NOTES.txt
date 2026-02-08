@@ -1,0 +1,60 @@
+K8s Wormsign has been installed.
+
+Controller: {{ include "wormsign.fullname" . }}-controller
+Namespace:  {{ include "wormsign.namespace" . }}
+Replicas:   {{ .Values.replicaCount }}
+
+Analyzer backend: {{ .Values.analyzer.backend }}
+
+Enabled detectors:
+{{- if .Values.detectors.podStuckPending.enabled }}
+  - PodStuckPending (threshold: {{ .Values.detectors.podStuckPending.threshold }})
+{{- end }}
+{{- if .Values.detectors.podCrashLoop.enabled }}
+  - PodCrashLoop (threshold: {{ .Values.detectors.podCrashLoop.threshold }})
+{{- end }}
+{{- if .Values.detectors.podFailed.enabled }}
+  - PodFailed
+{{- end }}
+{{- if .Values.detectors.nodeNotReady.enabled }}
+  - NodeNotReady (threshold: {{ .Values.detectors.nodeNotReady.threshold }})
+{{- end }}
+{{- if .Values.detectors.pvcStuckBinding.enabled }}
+  - PVCStuckBinding (threshold: {{ .Values.detectors.pvcStuckBinding.threshold }})
+{{- end }}
+{{- if .Values.detectors.highPodCount.enabled }}
+  - HighPodCount (threshold: {{ .Values.detectors.highPodCount.threshold }})
+{{- end }}
+{{- if .Values.detectors.jobDeadlineExceeded.enabled }}
+  - JobDeadlineExceeded
+{{- end }}
+
+Enabled sinks:
+  - log (always enabled)
+{{- if .Values.sinks.slack.enabled }}
+  - Slack
+{{- end }}
+{{- if .Values.sinks.pagerduty.enabled }}
+  - PagerDuty
+{{- end }}
+{{- if .Values.sinks.s3.enabled }}
+  - S3 (bucket: {{ .Values.sinks.s3.bucket }})
+{{- end }}
+{{- if .Values.sinks.webhook.enabled }}
+  - Webhook
+{{- end }}
+{{- if .Values.sinks.kubernetesEvent.enabled }}
+  - Kubernetes Event
+{{- end }}
+
+{{- if .Values.metrics.enabled }}
+
+Metrics endpoint: :{{ .Values.metrics.port }}/metrics
+{{- if .Values.metrics.serviceMonitor.enabled }}
+ServiceMonitor: enabled (interval: {{ .Values.metrics.serviceMonitor.interval }})
+{{- end }}
+{{- end }}
+
+Health endpoints:
+  Liveness:  :{{ .Values.health.port }}/healthz
+  Readiness: :{{ .Values.health.port }}/readyz
