@@ -757,7 +757,8 @@
       "Write unit tests for CRD lifecycle and invalid CRD handling",
       "Verify tests pass"
     ],
-    "status": "in_progress"
+    "status": "failed",
+    "retry_count": 2
   },
   {
     "id": "fix-implement-controller-lifecycle",
