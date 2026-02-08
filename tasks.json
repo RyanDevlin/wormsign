@@ -431,7 +431,7 @@
       "Verify the binary builds and runs (with --help or dry-run flag)",
       "Verify go build produces a working binary"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "implement-helm-chart",
