@@ -234,7 +234,7 @@ func TestRunWithInvalidConfig(t *testing.T) {
 	tmpFile.Close()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	err = run(logger, tmpFile.Name(), "")
+	err = run(logger, tmpFile.Name(), "", false)
 	if err == nil {
 		t.Error("run() expected error for invalid config file, got nil")
 	}
@@ -258,9 +258,18 @@ func TestRunWithInvalidLogLevel(t *testing.T) {
 	tmpFile.Close()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	err = run(logger, tmpFile.Name(), "")
+	err = run(logger, tmpFile.Name(), "", false)
 	if err == nil {
 		t.Error("run() expected error for invalid log level, got nil")
+	}
+}
+
+func TestRunDryRunMode(t *testing.T) {
+	// dry-run should validate config and exit without starting the controller.
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	err := run(logger, "/nonexistent/config.yaml", "", true)
+	if err != nil {
+		t.Errorf("run() with dry-run expected nil error, got: %v", err)
 	}
 }
 
@@ -269,7 +278,7 @@ func TestRunWithMissingConfigUsesDefaults(t *testing.T) {
 	// should proceed to the point of building the kubernetes client (which
 	// fails outside a cluster).
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	err := run(logger, "/nonexistent/config.yaml", "")
+	err := run(logger, "/nonexistent/config.yaml", "", false)
 	if err == nil {
 		// Running in a cluster — should not happen in test.
 		return
