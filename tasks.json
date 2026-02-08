@@ -548,7 +548,7 @@
       "Create test/ and test/e2e/ and test/fixtures/ directories",
       "Run go mod tidy && go build ./... to verify"
     ],
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "fix-implement-config",
