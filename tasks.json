@@ -494,7 +494,7 @@
       "Run go test ./... and verify 80%+ coverage for internal/",
       "Fix any failing tests"
     ],
-    "status": "pending",
+    "status": "in_progress",
     "retry_count": 2
   },
   {
