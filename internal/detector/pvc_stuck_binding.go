@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
@@ -44,6 +45,7 @@ type PVCStuckBinding struct {
 	base      *BaseDetector
 	threshold time.Duration
 
+	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
@@ -78,14 +80,20 @@ func (d *PVCStuckBinding) Severity() model.Severity  { return d.base.DetectorSev
 func (d *PVCStuckBinding) IsLeaderOnly() bool        { return false }
 
 func (d *PVCStuckBinding) Start(ctx context.Context) error {
-	ctx, d.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
 	<-ctx.Done()
 	return ctx.Err()
 }
 
 func (d *PVCStuckBinding) Stop() {
-	if d.cancel != nil {
-		d.cancel()
+	d.mu.Lock()
+	cancel := d.cancel
+	d.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
@@ -56,6 +57,7 @@ type NodeNotReady struct {
 	base      *BaseDetector
 	threshold time.Duration
 
+	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
@@ -90,14 +92,20 @@ func (d *NodeNotReady) Severity() model.Severity  { return d.base.DetectorSeveri
 func (d *NodeNotReady) IsLeaderOnly() bool        { return true }
 
 func (d *NodeNotReady) Start(ctx context.Context) error {
-	ctx, d.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
 	<-ctx.Done()
 	return ctx.Err()
 }
 
 func (d *NodeNotReady) Stop() {
-	if d.cancel != nil {
-		d.cancel()
+	d.mu.Lock()
+	cancel := d.cancel
+	d.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 

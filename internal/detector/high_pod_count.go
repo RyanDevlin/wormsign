@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
@@ -40,6 +41,7 @@ type HighPodCount struct {
 	base      *BaseDetector
 	threshold int
 
+	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
@@ -74,14 +76,20 @@ func (d *HighPodCount) Severity() model.Severity  { return d.base.DetectorSeveri
 func (d *HighPodCount) IsLeaderOnly() bool        { return false }
 
 func (d *HighPodCount) Start(ctx context.Context) error {
-	ctx, d.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
 	<-ctx.Done()
 	return ctx.Err()
 }
 
 func (d *HighPodCount) Stop() {
-	if d.cancel != nil {
-		d.cancel()
+	d.mu.Lock()
+	cancel := d.cancel
+	d.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 

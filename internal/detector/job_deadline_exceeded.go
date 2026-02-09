@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
@@ -49,6 +50,7 @@ type JobState struct {
 type JobDeadlineExceeded struct {
 	base *BaseDetector
 
+	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
@@ -79,14 +81,20 @@ func (d *JobDeadlineExceeded) Severity() model.Severity  { return d.base.Detecto
 func (d *JobDeadlineExceeded) IsLeaderOnly() bool        { return false }
 
 func (d *JobDeadlineExceeded) Start(ctx context.Context) error {
-	ctx, d.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
 	<-ctx.Done()
 	return ctx.Err()
 }
 
 func (d *JobDeadlineExceeded) Stop() {
-	if d.cancel != nil {
-		d.cancel()
+	d.mu.Lock()
+	cancel := d.cancel
+	d.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 

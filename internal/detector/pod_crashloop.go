@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
@@ -54,6 +55,7 @@ type PodCrashLoop struct {
 	base      *BaseDetector
 	threshold int32
 
+	mu     sync.Mutex
 	cancel context.CancelFunc
 }
 
@@ -88,14 +90,20 @@ func (d *PodCrashLoop) Severity() model.Severity  { return d.base.DetectorSeveri
 func (d *PodCrashLoop) IsLeaderOnly() bool        { return false }
 
 func (d *PodCrashLoop) Start(ctx context.Context) error {
-	ctx, d.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
 	<-ctx.Done()
 	return ctx.Err()
 }
 
 func (d *PodCrashLoop) Stop() {
-	if d.cancel != nil {
-		d.cancel()
+	d.mu.Lock()
+	cancel := d.cancel
+	d.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 
