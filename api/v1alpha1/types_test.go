@@ -808,6 +808,692 @@ func TestPolicyStatusFields(t *testing.T) {
 	}
 }
 
+// --- DeepCopyInto tests for generated types ---
+// These exercise DeepCopyInto paths in zz_generated.deepcopy.go that aren't
+// hit by the DeepCopy() wrapper tests above.
+
+func TestDeepCopyInto_AllTypes(t *testing.T) {
+	now := metav1.Now()
+
+	t.Run("CollectAction with TailLines", func(t *testing.T) {
+		tl := int64(100)
+		original := CollectAction{Type: CollectTypeLogs, Container: "app", TailLines: &tl, Previous: true}
+		var out CollectAction
+		original.DeepCopyInto(&out)
+		if out.TailLines == original.TailLines {
+			t.Error("TailLines pointer should be a new allocation")
+		}
+		if *out.TailLines != 100 {
+			t.Errorf("TailLines value = %d, want 100", *out.TailLines)
+		}
+		*out.TailLines = 50
+		if *original.TailLines != 100 {
+			t.Error("mutating copy affected original")
+		}
+	})
+
+	t.Run("CollectAction without TailLines", func(t *testing.T) {
+		original := CollectAction{Type: CollectTypeResource, Resource: "pods"}
+		copied := original.DeepCopy()
+		if copied.TailLines != nil {
+			t.Error("TailLines should be nil")
+		}
+	})
+
+	t.Run("CollectAction nil", func(t *testing.T) {
+		var ca *CollectAction
+		if ca.DeepCopy() != nil {
+			t.Error("DeepCopy of nil CollectAction should return nil")
+		}
+	})
+
+	t.Run("GathererTrigger", func(t *testing.T) {
+		original := GathererTrigger{
+			ResourceKinds: []string{"Pod", "Node"},
+			Detectors:     []string{"PodCrashLoop"},
+		}
+		var out GathererTrigger
+		original.DeepCopyInto(&out)
+		out.ResourceKinds[0] = "Changed"
+		if original.ResourceKinds[0] != "Pod" {
+			t.Error("mutating DeepCopyInto output affected original ResourceKinds")
+		}
+		out.Detectors[0] = "Changed"
+		if original.Detectors[0] != "PodCrashLoop" {
+			t.Error("mutating DeepCopyInto output affected original Detectors")
+		}
+	})
+
+	t.Run("GathererTrigger nil", func(t *testing.T) {
+		var gt *GathererTrigger
+		if gt.DeepCopy() != nil {
+			t.Error("DeepCopy of nil GathererTrigger should return nil")
+		}
+	})
+
+	t.Run("GathererTrigger empty slices", func(t *testing.T) {
+		original := GathererTrigger{}
+		copied := original.DeepCopy()
+		if copied.ResourceKinds != nil {
+			t.Error("nil ResourceKinds should remain nil")
+		}
+		if copied.Detectors != nil {
+			t.Error("nil Detectors should remain nil")
+		}
+	})
+
+	t.Run("PolicyMatch", func(t *testing.T) {
+		original := PolicyMatch{
+			ResourceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"team": "qa"},
+			},
+			OwnerNames: []string{"canary-*"},
+		}
+		var out PolicyMatch
+		original.DeepCopyInto(&out)
+		out.OwnerNames[0] = "changed-*"
+		if original.OwnerNames[0] != "canary-*" {
+			t.Error("mutating DeepCopyInto output affected original OwnerNames")
+		}
+		out.ResourceSelector.MatchLabels["extra"] = "value"
+		if _, ok := original.ResourceSelector.MatchLabels["extra"]; ok {
+			t.Error("mutating DeepCopyInto output affected original ResourceSelector")
+		}
+	})
+
+	t.Run("PolicyMatch nil", func(t *testing.T) {
+		var pm *PolicyMatch
+		if pm.DeepCopy() != nil {
+			t.Error("DeepCopy of nil PolicyMatch should return nil")
+		}
+	})
+
+	t.Run("PolicyMatch empty", func(t *testing.T) {
+		original := PolicyMatch{}
+		copied := original.DeepCopy()
+		if copied.ResourceSelector != nil {
+			t.Error("nil ResourceSelector should remain nil")
+		}
+		if copied.OwnerNames != nil {
+			t.Error("nil OwnerNames should remain nil")
+		}
+	})
+
+	t.Run("PolicySchedule", func(t *testing.T) {
+		later := metav1.NewTime(now.Add(3600e9))
+		original := PolicySchedule{Start: now, End: later}
+		var out PolicySchedule
+		original.DeepCopyInto(&out)
+		if out.Start.Time != now.Time {
+			t.Error("Start time mismatch")
+		}
+		if out.End.Time != later.Time {
+			t.Error("End time mismatch")
+		}
+	})
+
+	t.Run("PolicySchedule nil", func(t *testing.T) {
+		var ps *PolicySchedule
+		if ps.DeepCopy() != nil {
+			t.Error("DeepCopy of nil PolicySchedule should return nil")
+		}
+	})
+
+	t.Run("SecretReference nil", func(t *testing.T) {
+		var sr *SecretReference
+		if sr.DeepCopy() != nil {
+			t.Error("DeepCopy of nil SecretReference should return nil")
+		}
+	})
+
+	t.Run("WebhookConfig", func(t *testing.T) {
+		original := WebhookConfig{
+			URL: "https://example.com",
+			URLSecretRef: &SecretReference{
+				Name: "secret",
+				Key:  "url",
+			},
+			Headers:      map[string]string{"Auth": "Bearer token"},
+			Method:       "POST",
+			BodyTemplate: "template",
+		}
+		var out WebhookConfig
+		original.DeepCopyInto(&out)
+		out.URLSecretRef.Name = "changed"
+		if original.URLSecretRef.Name != "secret" {
+			t.Error("mutating DeepCopyInto output affected original URLSecretRef")
+		}
+		out.Headers["new"] = "header"
+		if _, ok := original.Headers["new"]; ok {
+			t.Error("mutating DeepCopyInto output affected original Headers")
+		}
+	})
+
+	t.Run("WebhookConfig nil", func(t *testing.T) {
+		var wc *WebhookConfig
+		if wc.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WebhookConfig should return nil")
+		}
+	})
+
+	t.Run("WebhookConfig empty", func(t *testing.T) {
+		original := WebhookConfig{URL: "https://test.com"}
+		copied := original.DeepCopy()
+		if copied.URLSecretRef != nil {
+			t.Error("nil URLSecretRef should remain nil")
+		}
+		if copied.Headers != nil {
+			t.Error("nil Headers should remain nil")
+		}
+	})
+
+	t.Run("WormsignDetectorSpec", func(t *testing.T) {
+		original := WormsignDetectorSpec{
+			Resource:  "pods",
+			Condition: "true",
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"env": "prod"},
+			},
+			Params: map[string]string{"key": "val"},
+		}
+		var out WormsignDetectorSpec
+		original.DeepCopyInto(&out)
+		out.Params["new"] = "param"
+		if _, ok := original.Params["new"]; ok {
+			t.Error("mutating DeepCopyInto output affected original Params")
+		}
+		out.NamespaceSelector.MatchLabels["new"] = "label"
+		if _, ok := original.NamespaceSelector.MatchLabels["new"]; ok {
+			t.Error("mutating DeepCopyInto output affected original NamespaceSelector")
+		}
+	})
+
+	t.Run("WormsignDetectorSpec nil", func(t *testing.T) {
+		var ds *WormsignDetectorSpec
+		if ds.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignDetectorSpec should return nil")
+		}
+	})
+
+	t.Run("WormsignDetectorSpec empty", func(t *testing.T) {
+		original := WormsignDetectorSpec{Resource: "pods", Condition: "true"}
+		copied := original.DeepCopy()
+		if copied.NamespaceSelector != nil {
+			t.Error("nil NamespaceSelector should remain nil")
+		}
+		if copied.Params != nil {
+			t.Error("nil Params should remain nil")
+		}
+	})
+
+	t.Run("WormsignDetectorStatus", func(t *testing.T) {
+		original := WormsignDetectorStatus{
+			WormsignStatus: WormsignStatus{
+				Conditions: []metav1.Condition{
+					{Type: ConditionReady, Status: metav1.ConditionTrue},
+				},
+			},
+			MatchedNamespaces: 5,
+			LastFired:         &now,
+			FaultEventsTotal:  42,
+		}
+		var out WormsignDetectorStatus
+		original.DeepCopyInto(&out)
+		out.Conditions[0].Status = metav1.ConditionFalse
+		if original.Conditions[0].Status != metav1.ConditionTrue {
+			t.Error("mutating DeepCopyInto affected original Conditions")
+		}
+	})
+
+	t.Run("WormsignDetectorStatus nil", func(t *testing.T) {
+		var ds *WormsignDetectorStatus
+		if ds.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignDetectorStatus should return nil")
+		}
+	})
+
+	t.Run("WormsignDetectorStatus no LastFired", func(t *testing.T) {
+		original := WormsignDetectorStatus{MatchedNamespaces: 3}
+		copied := original.DeepCopy()
+		if copied.LastFired != nil {
+			t.Error("nil LastFired should remain nil")
+		}
+	})
+
+	t.Run("WormsignGathererSpec", func(t *testing.T) {
+		tl := int64(50)
+		original := WormsignGathererSpec{
+			TriggerOn: GathererTrigger{ResourceKinds: []string{"Pod"}, Detectors: []string{"PodFailed"}},
+			Collect:   []CollectAction{{Type: CollectTypeLogs, TailLines: &tl}},
+		}
+		var out WormsignGathererSpec
+		original.DeepCopyInto(&out)
+		out.Collect[0].Type = CollectTypeResource
+		if original.Collect[0].Type != CollectTypeLogs {
+			t.Error("mutating DeepCopyInto affected original Collect")
+		}
+	})
+
+	t.Run("WormsignGathererSpec nil", func(t *testing.T) {
+		var gs *WormsignGathererSpec
+		if gs.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignGathererSpec should return nil")
+		}
+	})
+
+	t.Run("WormsignGathererStatus nil", func(t *testing.T) {
+		var gs *WormsignGathererStatus
+		if gs.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignGathererStatus should return nil")
+		}
+	})
+
+	t.Run("WormsignGathererStatus DeepCopyInto", func(t *testing.T) {
+		original := WormsignGathererStatus{
+			WormsignStatus: WormsignStatus{
+				Conditions: []metav1.Condition{{Type: ConditionReady, Status: metav1.ConditionTrue}},
+			},
+		}
+		var out WormsignGathererStatus
+		original.DeepCopyInto(&out)
+		out.Conditions[0].Status = metav1.ConditionFalse
+		if original.Conditions[0].Status != metav1.ConditionTrue {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignSinkSpec", func(t *testing.T) {
+		original := WormsignSinkSpec{
+			Type:           SinkTypeWebhook,
+			Webhook:        &WebhookConfig{URL: "https://test.com"},
+			SeverityFilter: []Severity{SeverityCritical},
+		}
+		var out WormsignSinkSpec
+		original.DeepCopyInto(&out)
+		out.SeverityFilter[0] = SeverityInfo
+		if original.SeverityFilter[0] != SeverityCritical {
+			t.Error("mutating DeepCopyInto affected original SeverityFilter")
+		}
+	})
+
+	t.Run("WormsignSinkSpec nil", func(t *testing.T) {
+		var ss *WormsignSinkSpec
+		if ss.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignSinkSpec should return nil")
+		}
+	})
+
+	t.Run("WormsignSinkSpec empty", func(t *testing.T) {
+		original := WormsignSinkSpec{Type: SinkTypeWebhook}
+		copied := original.DeepCopy()
+		if copied.Webhook != nil {
+			t.Error("nil Webhook should remain nil")
+		}
+		if copied.SeverityFilter != nil {
+			t.Error("nil SeverityFilter should remain nil")
+		}
+	})
+
+	t.Run("WormsignSinkStatus", func(t *testing.T) {
+		original := WormsignSinkStatus{
+			WormsignStatus: WormsignStatus{
+				Conditions: []metav1.Condition{{Type: ConditionReady, Status: metav1.ConditionTrue}},
+			},
+			DeliveriesTotal:    10,
+			LastDelivery:       &now,
+			LastDeliveryStatus: "success",
+		}
+		var out WormsignSinkStatus
+		original.DeepCopyInto(&out)
+		out.Conditions[0].Status = metav1.ConditionFalse
+		if original.Conditions[0].Status != metav1.ConditionTrue {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignSinkStatus nil", func(t *testing.T) {
+		var ss *WormsignSinkStatus
+		if ss.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignSinkStatus should return nil")
+		}
+	})
+
+	t.Run("WormsignSinkStatus no LastDelivery", func(t *testing.T) {
+		original := WormsignSinkStatus{DeliveriesTotal: 5}
+		copied := original.DeepCopy()
+		if copied.LastDelivery != nil {
+			t.Error("nil LastDelivery should remain nil")
+		}
+	})
+
+	t.Run("WormsignPolicySpec", func(t *testing.T) {
+		later := metav1.NewTime(now.Add(3600e9))
+		original := WormsignPolicySpec{
+			Action:    PolicyActionExclude,
+			Detectors: []string{"PodCrashLoop"},
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"env": "prod"},
+			},
+			Match: &PolicyMatch{
+				OwnerNames: []string{"test-*"},
+			},
+			Schedule: &PolicySchedule{Start: now, End: later},
+		}
+		var out WormsignPolicySpec
+		original.DeepCopyInto(&out)
+		out.Detectors[0] = "Changed"
+		if original.Detectors[0] != "PodCrashLoop" {
+			t.Error("mutating DeepCopyInto affected original Detectors")
+		}
+	})
+
+	t.Run("WormsignPolicySpec nil", func(t *testing.T) {
+		var ps *WormsignPolicySpec
+		if ps.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignPolicySpec should return nil")
+		}
+	})
+
+	t.Run("WormsignPolicySpec empty", func(t *testing.T) {
+		original := WormsignPolicySpec{Action: PolicyActionExclude}
+		copied := original.DeepCopy()
+		if copied.Detectors != nil {
+			t.Error("nil Detectors should remain nil")
+		}
+		if copied.NamespaceSelector != nil {
+			t.Error("nil NamespaceSelector should remain nil")
+		}
+		if copied.Match != nil {
+			t.Error("nil Match should remain nil")
+		}
+		if copied.Schedule != nil {
+			t.Error("nil Schedule should remain nil")
+		}
+	})
+
+	t.Run("WormsignPolicyStatus", func(t *testing.T) {
+		original := WormsignPolicyStatus{
+			WormsignStatus: WormsignStatus{
+				Conditions: []metav1.Condition{{Type: ConditionActive, Status: metav1.ConditionTrue}},
+			},
+			MatchedResources: 10,
+			LastEvaluated:    &now,
+		}
+		var out WormsignPolicyStatus
+		original.DeepCopyInto(&out)
+		out.Conditions[0].Status = metav1.ConditionFalse
+		if original.Conditions[0].Status != metav1.ConditionTrue {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignPolicyStatus nil", func(t *testing.T) {
+		var ps *WormsignPolicyStatus
+		if ps.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignPolicyStatus should return nil")
+		}
+	})
+
+	t.Run("WormsignPolicyStatus no LastEvaluated", func(t *testing.T) {
+		original := WormsignPolicyStatus{MatchedResources: 3}
+		copied := original.DeepCopy()
+		if copied.LastEvaluated != nil {
+			t.Error("nil LastEvaluated should remain nil")
+		}
+	})
+
+	t.Run("WormsignStatus nil", func(t *testing.T) {
+		var ws *WormsignStatus
+		if ws.DeepCopy() != nil {
+			t.Error("DeepCopy of nil WormsignStatus should return nil")
+		}
+	})
+
+	t.Run("WormsignStatus empty conditions", func(t *testing.T) {
+		original := WormsignStatus{}
+		copied := original.DeepCopy()
+		if copied.Conditions != nil {
+			t.Error("nil Conditions should remain nil")
+		}
+	})
+}
+
+// TestListDeepCopyInto exercises DeepCopyInto for all List types.
+func TestListDeepCopyInto(t *testing.T) {
+	t.Run("WormsignDetectorList", func(t *testing.T) {
+		original := WormsignDetectorList{
+			Items: []WormsignDetector{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "d1"},
+					Spec: WormsignDetectorSpec{
+						Resource:  "pods",
+						Condition: "true",
+						Params:    map[string]string{"key": "val"},
+					},
+				},
+			},
+		}
+		var out WormsignDetectorList
+		original.DeepCopyInto(&out)
+		out.Items[0].Spec.Params["new"] = "param"
+		if _, ok := original.Items[0].Spec.Params["new"]; ok {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignDetectorList nil", func(t *testing.T) {
+		var dl *WormsignDetectorList
+		if dl.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+
+	t.Run("WormsignDetectorList empty items", func(t *testing.T) {
+		original := WormsignDetectorList{}
+		copied := original.DeepCopy()
+		if copied.Items != nil {
+			t.Error("nil Items should remain nil")
+		}
+	})
+
+	t.Run("WormsignGathererList", func(t *testing.T) {
+		original := WormsignGathererList{
+			Items: []WormsignGatherer{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "g1"},
+					Spec: WormsignGathererSpec{
+						TriggerOn: GathererTrigger{ResourceKinds: []string{"Pod"}},
+						Collect:   []CollectAction{{Type: CollectTypeResource}},
+					},
+				},
+			},
+		}
+		var out WormsignGathererList
+		original.DeepCopyInto(&out)
+		out.Items[0].Spec.TriggerOn.ResourceKinds[0] = "Changed"
+		if original.Items[0].Spec.TriggerOn.ResourceKinds[0] != "Pod" {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignGathererList nil", func(t *testing.T) {
+		var gl *WormsignGathererList
+		if gl.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+
+	t.Run("WormsignGathererList empty items", func(t *testing.T) {
+		original := WormsignGathererList{}
+		copied := original.DeepCopy()
+		if copied.Items != nil {
+			t.Error("nil Items should remain nil")
+		}
+	})
+
+	t.Run("WormsignSinkList", func(t *testing.T) {
+		original := WormsignSinkList{
+			Items: []WormsignSink{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "s1"},
+					Spec: WormsignSinkSpec{
+						Type:           SinkTypeWebhook,
+						SeverityFilter: []Severity{SeverityCritical},
+					},
+				},
+			},
+		}
+		var out WormsignSinkList
+		original.DeepCopyInto(&out)
+		out.Items[0].Spec.SeverityFilter[0] = SeverityInfo
+		if original.Items[0].Spec.SeverityFilter[0] != SeverityCritical {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignSinkList nil", func(t *testing.T) {
+		var sl *WormsignSinkList
+		if sl.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+
+	t.Run("WormsignSinkList empty items", func(t *testing.T) {
+		original := WormsignSinkList{}
+		copied := original.DeepCopy()
+		if copied.Items != nil {
+			t.Error("nil Items should remain nil")
+		}
+	})
+
+	t.Run("WormsignPolicyList", func(t *testing.T) {
+		original := WormsignPolicyList{
+			Items: []WormsignPolicy{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "p1"},
+					Spec: WormsignPolicySpec{
+						Action:    PolicyActionExclude,
+						Detectors: []string{"PodCrashLoop"},
+					},
+				},
+			},
+		}
+		var out WormsignPolicyList
+		original.DeepCopyInto(&out)
+		out.Items[0].Spec.Detectors[0] = "Changed"
+		if original.Items[0].Spec.Detectors[0] != "PodCrashLoop" {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignPolicyList nil", func(t *testing.T) {
+		var pl *WormsignPolicyList
+		if pl.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+
+	t.Run("WormsignPolicyList empty items", func(t *testing.T) {
+		original := WormsignPolicyList{}
+		copied := original.DeepCopy()
+		if copied.Items != nil {
+			t.Error("nil Items should remain nil")
+		}
+	})
+}
+
+// TestTopLevelDeepCopyInto exercises DeepCopyInto for top-level CRD types.
+func TestTopLevelDeepCopyInto(t *testing.T) {
+	t.Run("WormsignDetector", func(t *testing.T) {
+		original := WormsignDetector{
+			ObjectMeta: metav1.ObjectMeta{Name: "d1"},
+			Spec:       WormsignDetectorSpec{Resource: "pods", Condition: "true", Params: map[string]string{"k": "v"}},
+		}
+		var out WormsignDetector
+		original.DeepCopyInto(&out)
+		out.Spec.Params["new"] = "val"
+		if _, ok := original.Spec.Params["new"]; ok {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignGatherer", func(t *testing.T) {
+		original := WormsignGatherer{
+			ObjectMeta: metav1.ObjectMeta{Name: "g1"},
+			Spec: WormsignGathererSpec{
+				TriggerOn: GathererTrigger{Detectors: []string{"det"}},
+				Collect:   []CollectAction{{Type: CollectTypeResource}},
+			},
+		}
+		var out WormsignGatherer
+		original.DeepCopyInto(&out)
+		out.Spec.TriggerOn.Detectors[0] = "changed"
+		if original.Spec.TriggerOn.Detectors[0] != "det" {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignSink", func(t *testing.T) {
+		original := WormsignSink{
+			ObjectMeta: metav1.ObjectMeta{Name: "s1"},
+			Spec: WormsignSinkSpec{
+				Type:           SinkTypeWebhook,
+				SeverityFilter: []Severity{SeverityCritical},
+			},
+		}
+		var out WormsignSink
+		original.DeepCopyInto(&out)
+		out.Spec.SeverityFilter[0] = SeverityInfo
+		if original.Spec.SeverityFilter[0] != SeverityCritical {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+
+	t.Run("WormsignPolicy", func(t *testing.T) {
+		original := WormsignPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "p1"},
+			Spec: WormsignPolicySpec{
+				Action:    PolicyActionExclude,
+				Detectors: []string{"det"},
+			},
+		}
+		var out WormsignPolicy
+		original.DeepCopyInto(&out)
+		out.Spec.Detectors[0] = "changed"
+		if original.Spec.Detectors[0] != "det" {
+			t.Error("mutating DeepCopyInto affected original")
+		}
+	})
+}
+
+// TestNilDeepCopyObject verifies DeepCopyObject on nil receivers for all types.
+func TestNilDeepCopyObject(t *testing.T) {
+	t.Run("WormsignDetector nil", func(t *testing.T) {
+		var d *WormsignDetector
+		if d.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+	t.Run("WormsignGatherer nil", func(t *testing.T) {
+		var g *WormsignGatherer
+		if g.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+	t.Run("WormsignSink nil", func(t *testing.T) {
+		var s *WormsignSink
+		if s.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+	t.Run("WormsignPolicy nil", func(t *testing.T) {
+		var p *WormsignPolicy
+		if p.DeepCopy() != nil {
+			t.Error("DeepCopy of nil should return nil")
+		}
+	})
+}
+
 // TestWormsignStatusDeepCopy verifies shared status DeepCopy.
 func TestWormsignStatusDeepCopy(t *testing.T) {
 	original := &WormsignStatus{
