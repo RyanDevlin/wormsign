@@ -548,10 +548,20 @@ func TestController_RunWithLeaderElection(t *testing.T) {
 		errCh <- ctrl.Run(ctx)
 	}()
 
-	// Wait for leader election to kick in and coordinator to start.
+	// Let the controller run briefly, then shut it down.
 	time.Sleep(1 * time.Second)
+	cancel()
 
-	// Verify all subsystems were created.
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("timed out waiting for Run to return")
+	}
+
+	// After Run returns, all fields are safe to read without races.
 	if ctrl.leaderElector == nil {
 		t.Error("expected leaderElector to be set")
 	}
@@ -566,16 +576,6 @@ func TestController_RunWithLeaderElection(t *testing.T) {
 	}
 	if ctrl.filterEngine == nil {
 		t.Error("expected filterEngine to be set")
-	}
-
-	cancel()
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("Run returned error: %v", err)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("timed out waiting for Run to return")
 	}
 }
 

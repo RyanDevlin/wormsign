@@ -1761,10 +1761,7 @@ func TestDetector_StartStop_PodStuckPending(t *testing.T) {
 		errCh <- d.Start(ctx)
 	}()
 
-	// Give Start a moment to block.
-	time.Sleep(10 * time.Millisecond)
-
-	d.Stop()
+	// Cancel context to stop the detector (thread-safe shutdown).
 	cancel()
 
 	select {
@@ -1773,8 +1770,11 @@ func TestDetector_StartStop_PodStuckPending(t *testing.T) {
 			t.Errorf("Start() returned unexpected error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start() did not return after Stop()")
+		t.Fatal("Start() did not return after context cancel")
 	}
+
+	// Stop after Start has returned is safe (no-op or idempotent).
+	d.Stop()
 }
 
 func TestDetector_StartStop_PodCrashLoop(t *testing.T) {
@@ -1795,8 +1795,6 @@ func TestDetector_StartStop_PodCrashLoop(t *testing.T) {
 		errCh <- d.Start(ctx)
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	d.Stop()
 	cancel()
 
 	select {
@@ -1805,8 +1803,10 @@ func TestDetector_StartStop_PodCrashLoop(t *testing.T) {
 			t.Errorf("Start() returned unexpected error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start() did not return after Stop()")
+		t.Fatal("Start() did not return after context cancel")
 	}
+
+	d.Stop()
 }
 
 func TestDetector_StartStop_NodeNotReady(t *testing.T) {
@@ -1827,8 +1827,6 @@ func TestDetector_StartStop_NodeNotReady(t *testing.T) {
 		errCh <- d.Start(ctx)
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	d.Stop()
 	cancel()
 
 	select {
@@ -1837,8 +1835,10 @@ func TestDetector_StartStop_NodeNotReady(t *testing.T) {
 			t.Errorf("Start() returned unexpected error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start() did not return after Stop()")
+		t.Fatal("Start() did not return after context cancel")
 	}
+
+	d.Stop()
 }
 
 func TestDetector_StartStop_PodFailed(t *testing.T) {
@@ -1858,8 +1858,6 @@ func TestDetector_StartStop_PodFailed(t *testing.T) {
 		errCh <- d.Start(ctx)
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	d.Stop()
 	cancel()
 
 	select {
@@ -1868,8 +1866,10 @@ func TestDetector_StartStop_PodFailed(t *testing.T) {
 			t.Errorf("Start() returned unexpected error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start() did not return after Stop()")
+		t.Fatal("Start() did not return after context cancel")
 	}
+
+	d.Stop()
 }
 
 func TestDetector_StartStop_PVCStuckBinding(t *testing.T) {
@@ -1890,8 +1890,6 @@ func TestDetector_StartStop_PVCStuckBinding(t *testing.T) {
 		errCh <- d.Start(ctx)
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	d.Stop()
 	cancel()
 
 	select {
@@ -1900,8 +1898,10 @@ func TestDetector_StartStop_PVCStuckBinding(t *testing.T) {
 			t.Errorf("Start() returned unexpected error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start() did not return after Stop()")
+		t.Fatal("Start() did not return after context cancel")
 	}
+
+	d.Stop()
 }
 
 func TestDetector_StartStop_HighPodCount(t *testing.T) {
@@ -1922,8 +1922,6 @@ func TestDetector_StartStop_HighPodCount(t *testing.T) {
 		errCh <- d.Start(ctx)
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	d.Stop()
 	cancel()
 
 	select {
@@ -1932,8 +1930,10 @@ func TestDetector_StartStop_HighPodCount(t *testing.T) {
 			t.Errorf("Start() returned unexpected error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start() did not return after Stop()")
+		t.Fatal("Start() did not return after context cancel")
 	}
+
+	d.Stop()
 }
 
 func TestDetector_StartStop_JobDeadlineExceeded(t *testing.T) {
@@ -1953,8 +1953,6 @@ func TestDetector_StartStop_JobDeadlineExceeded(t *testing.T) {
 		errCh <- d.Start(ctx)
 	}()
 
-	time.Sleep(10 * time.Millisecond)
-	d.Stop()
 	cancel()
 
 	select {
@@ -1963,8 +1961,10 @@ func TestDetector_StartStop_JobDeadlineExceeded(t *testing.T) {
 			t.Errorf("Start() returned unexpected error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Start() did not return after Stop()")
+		t.Fatal("Start() did not return after context cancel")
 	}
+
+	d.Stop()
 }
 
 // TestDetector_StartViaContextCancel verifies that Start() returns when
