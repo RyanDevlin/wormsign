@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -30,26 +29,27 @@ func TestMain(m *testing.M) {
 
 	cfg, err := testEnv.Start()
 	if err != nil {
-		logger.Warn("envtest binaries not available, e2e tests will be skipped",
+		logger.Warn("envtest binaries not available, envtest-based tests will be skipped",
 			"error", err,
 		)
-		// Exit with 0 so "go test" does not fail during project setup.
-		// E2E tests will be skipped individually when envtestOK is false.
-		fmt.Println("SKIP: envtest binaries not available")
-		os.Exit(0)
-	}
-	restCfg = cfg
-	envtestOK = true
+		// Do NOT os.Exit here — integration tests that don't need envtest
+		// should still run. Tests requiring envtest call skipIfNoEnvtest().
+	} else {
+		restCfg = cfg
+		envtestOK = true
 
-	if err := wormsignv1alpha1.AddToScheme(scheme.Scheme); err != nil {
-		logger.Error("failed to add wormsign scheme", "error", err)
-		os.Exit(1)
+		if err := wormsignv1alpha1.AddToScheme(scheme.Scheme); err != nil {
+			logger.Error("failed to add wormsign scheme", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	code := m.Run()
 
-	if err := testEnv.Stop(); err != nil {
-		logger.Error("failed to stop envtest", "error", err)
+	if envtestOK {
+		if err := testEnv.Stop(); err != nil {
+			logger.Error("failed to stop envtest", "error", err)
+		}
 	}
 
 	os.Exit(code)
