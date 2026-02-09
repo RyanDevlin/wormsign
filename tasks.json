@@ -846,7 +846,7 @@
       "Run go test ./... -race and verify all pass",
       "Run go test ./... -cover and verify 80%+ for internal/"
     ],
-    "status": "in_progress",
+    "status": "done",
     "retry_count": 3
   }
 ]
