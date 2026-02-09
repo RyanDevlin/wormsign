@@ -1,0 +1,19 @@
+apiVersion: wormsign.io/v1alpha1
+kind: WormsignDetector
+metadata:
+  name: high-restart-rate
+  namespace: wormsign-system
+spec:
+  description: "Fires when a pod has restarted more than 10 times"
+  resource: pods
+  namespaceSelector:
+    matchLabels:
+      wormsign.io/watch: "true"
+  condition: |
+    pod.status.containerStatuses.exists(c,
+      c.restartCount > params.maxRestarts
+    )
+  params:
+    maxRestarts: "10"
+  severity: warning
+  cooldown: 1h

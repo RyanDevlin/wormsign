@@ -1,0 +1,19 @@
+apiVersion: wormsign.io/v1alpha1
+kind: WormsignGatherer
+metadata:
+  name: pod-network-info
+  namespace: default
+spec:
+  description: "Collects pod network configuration for networking diagnosis"
+  triggerOn:
+    resourceKinds: ["Pod"]
+    detectors: ["PodCrashLoop", "PodFailed"]
+  collect:
+    - type: resource
+      apiVersion: v1
+      resource: pods
+      name: "{resource.name}"
+      namespace: "{resource.namespace}"
+    - type: logs
+      container: app
+      tailLines: 50

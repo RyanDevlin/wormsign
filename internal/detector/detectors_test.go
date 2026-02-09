@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -1735,6 +1736,359 @@ func TestDetector_LeaderOnly(t *testing.T) {
 				t.Errorf("IsLeaderOnly() = %v, want %v", d.IsLeaderOnly(), tt.leaderOnly)
 			}
 		})
+	}
+}
+
+// =====================================================================
+// Detector Start/Stop lifecycle tests
+// =====================================================================
+
+func TestDetector_StartStop_PodStuckPending(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewPodStuckPending(PodStuckPendingConfig{
+		Threshold: 15 * time.Minute,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	// Give Start a moment to block.
+	time.Sleep(10 * time.Millisecond)
+
+	d.Stop()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after Stop()")
+	}
+}
+
+func TestDetector_StartStop_PodCrashLoop(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewPodCrashLoop(PodCrashLoopConfig{
+		Threshold: 3,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	d.Stop()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after Stop()")
+	}
+}
+
+func TestDetector_StartStop_NodeNotReady(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewNodeNotReady(NodeNotReadyConfig{
+		Threshold: 5 * time.Minute,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	d.Stop()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after Stop()")
+	}
+}
+
+func TestDetector_StartStop_PodFailed(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewPodFailed(PodFailedConfig{
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	d.Stop()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after Stop()")
+	}
+}
+
+func TestDetector_StartStop_PVCStuckBinding(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewPVCStuckBinding(PVCStuckBindingConfig{
+		Threshold: 10 * time.Minute,
+		Cooldown:  30 * time.Minute,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	d.Stop()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after Stop()")
+	}
+}
+
+func TestDetector_StartStop_HighPodCount(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewHighPodCount(HighPodCountConfig{
+		Threshold: 200,
+		Cooldown:  1 * time.Hour,
+		Callback:  cb,
+		Logger:    silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	d.Stop()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after Stop()")
+	}
+}
+
+func TestDetector_StartStop_JobDeadlineExceeded(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewJobDeadlineExceeded(JobDeadlineExceededConfig{
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	d.Stop()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after Stop()")
+	}
+}
+
+// TestDetector_StartViaContextCancel verifies that Start() returns when
+// its parent context is cancelled, even if Stop() is not called.
+func TestDetector_StartViaContextCancel(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewPodStuckPending(PodStuckPendingConfig{
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	cancel() // cancel context without calling Stop
+
+	select {
+	case err := <-errCh:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Start() returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() did not return after context cancel")
+	}
+}
+
+// TestDetector_StopBeforeStart verifies that calling Stop() before
+// Start() is safe and does not panic.
+func TestDetector_StopBeforeStart(t *testing.T) {
+	cb, _ := collectCallback()
+	d, err := NewPodStuckPending(PodStuckPendingConfig{
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	// Should not panic.
+	d.Stop()
+}
+
+// =====================================================================
+// Emit with labels and annotations tests
+// =====================================================================
+
+func TestBaseDetector_EmitWithLabelsAndAnnotations(t *testing.T) {
+	cb, getEvents := collectCallback()
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestLabels",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod", UID: "uid"}
+	labels := map[string]string{"app": "web", "team": "platform"}
+	annotations := map[string]string{"exitCode": "137", "reason": "OOMKilled"}
+
+	if !base.Emit(ref, "test fault", labels, annotations) {
+		t.Error("Emit should return true")
+	}
+
+	events := getEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.Labels["app"] != "web" {
+		t.Errorf("label app = %q, want web", e.Labels["app"])
+	}
+	if e.Labels["team"] != "platform" {
+		t.Errorf("label team = %q, want platform", e.Labels["team"])
+	}
+	if e.Annotations["exitCode"] != "137" {
+		t.Errorf("annotation exitCode = %q, want 137", e.Annotations["exitCode"])
+	}
+	if e.Annotations["reason"] != "OOMKilled" {
+		t.Errorf("annotation reason = %q, want OOMKilled", e.Annotations["reason"])
+	}
+}
+
+func TestBaseDetector_EmitWithNilLabelsAndAnnotations(t *testing.T) {
+	cb, getEvents := collectCallback()
+	base, err := NewBaseDetector(BaseDetectorConfig{
+		Name:     "TestNilLabels",
+		Severity: model.SeverityWarning,
+		Cooldown: 30 * time.Minute,
+		Callback: cb,
+		Logger:   silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("constructor error: %v", err)
+	}
+
+	ref := model.ResourceRef{Kind: "Pod", Namespace: "ns", Name: "pod", UID: "uid"}
+
+	if !base.Emit(ref, "test fault", nil, nil) {
+		t.Error("Emit should return true")
+	}
+
+	events := getEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	// Labels and annotations should be empty maps (model initializes nil to empty).
+	if len(events[0].Labels) != 0 {
+		t.Errorf("Labels should be empty, got %v", events[0].Labels)
+	}
+	if len(events[0].Annotations) != 0 {
+		t.Errorf("Annotations should be empty, got %v", events[0].Annotations)
 	}
 }
 

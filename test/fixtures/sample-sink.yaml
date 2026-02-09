@@ -1,0 +1,22 @@
+apiVersion: wormsign.io/v1alpha1
+kind: WormsignSink
+metadata:
+  name: team-webhook
+  namespace: wormsign-system
+spec:
+  description: "Posts to team webhook for incident notification"
+  type: webhook
+  webhook:
+    url: "https://hooks.example.com/wormsign"
+    method: POST
+    headers:
+      Content-Type: application/json
+    bodyTemplate: |
+      {
+        "severity": "{{ .Severity }}",
+        "rootCause": "{{ .RootCause }}",
+        "resource": "{{ .Resource.Kind }}/{{ .Resource.Name }}"
+      }
+  severityFilter:
+    - critical
+    - warning

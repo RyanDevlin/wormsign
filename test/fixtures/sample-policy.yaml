@@ -1,0 +1,17 @@
+apiVersion: wormsign.io/v1alpha1
+kind: WormsignPolicy
+metadata:
+  name: exclude-test-workloads
+  namespace: test
+spec:
+  action: Exclude
+  detectors:
+    - PodCrashLoop
+    - PodFailed
+  match:
+    resourceSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: integration-tests
+    ownerNames:
+      - "canary-deploy-*"
+      - "load-test-*"
