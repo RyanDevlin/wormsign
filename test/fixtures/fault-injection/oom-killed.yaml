@@ -1,0 +1,30 @@
+# Triggers: PodFailed / PodCrashLoop detector
+# A pod that allocates memory until it is OOM-killed by the kernel.
+# Container exit code will be 137 (SIGKILL from OOM).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fault-oom-killed
+  namespace: default
+  labels:
+    app: wormsign-fault-test
+    fault-type: oom-killed
+spec:
+  restartPolicy: Always
+  containers:
+    - name: oom
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "allocating memory until OOM..."
+          # Use dd to rapidly consume memory
+          dd if=/dev/zero of=/dev/null bs=1M &
+          tail -f /dev/zero
+      resources:
+        requests:
+          cpu: 10m
+          memory: 8Mi
+        limits:
+          memory: 16Mi

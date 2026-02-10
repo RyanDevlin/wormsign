@@ -1,0 +1,28 @@
+# Triggers: JobDeadlineExceeded detector
+# A Job with a very short activeDeadlineSeconds that always fails.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fault-deadline-job
+  namespace: default
+  labels:
+    app: wormsign-fault-test
+    fault-type: job-deadline
+spec:
+  activeDeadlineSeconds: 5
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: wormsign-fault-test
+        fault-type: job-deadline
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'working...'; sleep 30"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi

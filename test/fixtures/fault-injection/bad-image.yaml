@@ -1,0 +1,19 @@
+# Triggers: PodFailed detector
+# A pod referencing a Docker image that does not exist.
+# This creates ImagePullBackOff / ErrImagePull events.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fault-bad-image
+  namespace: default
+  labels:
+    app: wormsign-fault-test
+    fault-type: bad-image
+spec:
+  containers:
+    - name: app
+      image: registry.example.com/nonexistent/image:v999.999.999
+      resources:
+        requests:
+          cpu: 10m
+          memory: 8Mi

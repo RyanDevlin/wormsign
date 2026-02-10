@@ -372,7 +372,13 @@ func (e *Engine) matchesNamespaceLabelSelector(labels map[string]string) bool {
 	if e.globalConfig.ExcludeNamespaceSelector == nil {
 		return false
 	}
-	return matchesLabelSelector(labels, e.globalConfig.ExcludeNamespaceSelector)
+	// An empty selector (no matchLabels and no matchExpressions) should not
+	// exclude all namespaces — that would be a destructive misconfiguration.
+	sel := e.globalConfig.ExcludeNamespaceSelector
+	if len(sel.MatchLabels) == 0 && len(sel.MatchExpressions) == 0 {
+		return false
+	}
+	return matchesLabelSelector(labels, sel)
 }
 
 // matchesSuppressPolicy checks if any Suppress policy is active and applies

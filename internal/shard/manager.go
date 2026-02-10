@@ -97,6 +97,12 @@ type Manager struct {
 	// reconcileInterval controls how often the coordinator re-checks
 	// assignments.
 	reconcileInterval time.Duration
+
+	// peerSelector is a Kubernetes label selector used to discover
+	// controller pods for multi-replica shard assignment. Required
+	// when numReplicas > 1 so the coordinator can map shard indices
+	// to actual pod names.
+	peerSelector string
 }
 
 // ManagerOption configures a Manager.
@@ -138,6 +144,14 @@ func WithNowFunc(fn func() time.Time) ManagerOption {
 func WithReconcileInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) {
 		m.reconcileInterval = d
+	}
+}
+
+// WithPeerSelector sets the label selector used to discover controller pods
+// for multi-replica shard assignment. Required when numReplicas > 1.
+func WithPeerSelector(selector string) ManagerOption {
+	return func(m *Manager) {
+		m.peerSelector = selector
 	}
 }
 
@@ -296,17 +310,47 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	// Compute shard assignments using consistent hashing.
 	assignments := AssignNamespaces(namespaces, m.numReplicas)
 
-	// Build the shard map.
+	// Build the shard map. For single-replica mode, use the replicaID
+	// directly as the key. For multi-replica, discover peer pod names
+	// and use them as keys so each replica can find its assignment.
 	shardMap := &ShardMap{
 		Assignments: make(map[string][]string, m.numReplicas),
 		NumReplicas: m.numReplicas,
 		UpdatedAt:   m.nowFunc().UTC(),
 	}
-	for i := 0; i < m.numReplicas; i++ {
-		key := fmt.Sprintf("%d", i)
-		assigned := assignments[i]
-		sort.Strings(assigned)
-		shardMap.Assignments[key] = assigned
+	if m.numReplicas == 1 {
+		// Single-replica mode: assign all namespaces to this replica.
+		all := assignments[0]
+		sort.Strings(all)
+		shardMap.Assignments[m.replicaID] = all
+	} else {
+		// Multi-replica mode: discover peers to map indices to pod names.
+		peers, err := m.discoverPeers(ctx)
+		if err != nil {
+			return fmt.Errorf("discovering peers: %w", err)
+		}
+
+		// Adjust replica count to match actual running peers. This handles
+		// scale-down (e.g. 3→1 via helm upgrade) where the surviving pod's
+		// config still says numReplicas=3 but only 1 peer exists.
+		effectiveReplicas := m.numReplicas
+		if len(peers) > 0 && len(peers) != m.numReplicas {
+			m.logger.Info("adjusting replica count to match discovered peers",
+				"configured", m.numReplicas,
+				"discovered", len(peers),
+			)
+			effectiveReplicas = len(peers)
+			m.SetNumReplicas(effectiveReplicas)
+			// Re-compute assignments with the actual peer count.
+			assignments = AssignNamespaces(namespaces, effectiveReplicas)
+			shardMap.NumReplicas = effectiveReplicas
+		}
+
+		for i := 0; i < effectiveReplicas; i++ {
+			assigned := assignments[i]
+			sort.Strings(assigned)
+			shardMap.Assignments[peers[i]] = assigned
+		}
 	}
 
 	// Write the shard map to the ConfigMap.
@@ -324,6 +368,38 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	)
 
 	return nil
+}
+
+// discoverPeers lists controller pods matching the peerSelector and returns
+// their names sorted consistently. This provides the index→pod-name mapping
+// needed for multi-replica shard assignment.
+func (m *Manager) discoverPeers(ctx context.Context) ([]string, error) {
+	if m.peerSelector == "" {
+		return nil, fmt.Errorf("peer selector not configured (required for numReplicas > 1)")
+	}
+
+	pods, err := m.clientset.CoreV1().Pods(m.controllerNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: m.peerSelector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing controller pods: %w", err)
+	}
+
+	var names []string
+	for _, pod := range pods.Items {
+		// Skip terminal pods (completed or failed) — they won't process namespaces.
+		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			continue
+		}
+		names = append(names, pod.Name)
+	}
+	sort.Strings(names)
+
+	m.logger.Debug("discovered peers",
+		"peers", names,
+		"count", len(names),
+	)
+	return names, nil
 }
 
 // syncFromConfigMap reads the shard map from the ConfigMap and applies

@@ -17,6 +17,7 @@ import (
 	"github.com/k8s-wormsign/k8s-wormsign/internal/filter"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/health"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/metrics"
+	"github.com/k8s-wormsign/k8s-wormsign/internal/model"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/pipeline"
 	pipelinecorrelator "github.com/k8s-wormsign/k8s-wormsign/internal/pipeline/correlator"
 	"github.com/k8s-wormsign/k8s-wormsign/internal/shard"
@@ -156,6 +157,12 @@ func (c *Controller) Run(ctx context.Context) error {
 	// 2. Create the shard manager for namespace assignment.
 	identity := resolveIdentity()
 	namespace := resolveNamespace()
+	// Build the peer selector for multi-replica shard discovery.
+	// Matches the Helm deployment's selector labels + component label.
+	peerSelector := fmt.Sprintf(
+		"app.kubernetes.io/name=k8s-wormsign,app.kubernetes.io/component=controller",
+	)
+
 	shardMgr, err := shard.NewManager(
 		c.clientset,
 		namespace,
@@ -164,6 +171,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		shard.WithLogger(c.logger.With("component", "shard-manager")),
 		shard.WithExcludeNamespaces(c.config.Filters.ExcludeNamespaces),
 		shard.WithMetricsFunc(c.metrics.ShardNamespaces.Set),
+		shard.WithPeerSelector(peerSelector),
 	)
 	if err != nil {
 		return fmt.Errorf("controller: creating shard manager: %w", err)
@@ -185,6 +193,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	// Wire shard changes to the informer manager.
 	shardMgr.OnShardChange(informerMgr.HandleShardChange)
 
+
 	// 4. Create the log sink (always enabled per Section 5.4.1).
 	logSink, err := sink.NewLogSink(c.logger.With("component", "sink-log"))
 	if err != nil {
@@ -193,6 +202,24 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	// Build the list of active sinks. The log sink is always included.
 	activeSinks := []pipeline.Sink{logSink}
+
+	// Kubernetes Event sink (creates WormsignRCA events on affected resources).
+	if c.config.Sinks.KubernetesEvent.Enabled {
+		severityFilter := make([]model.Severity, len(c.config.Sinks.KubernetesEvent.SeverityFilter))
+		for i, s := range c.config.Sinks.KubernetesEvent.SeverityFilter {
+			severityFilter[i] = model.Severity(s)
+		}
+		k8sEventSink, sinkErr := sink.NewKubernetesEventSink(
+			c.clientset,
+			sink.KubernetesEventConfig{SeverityFilter: severityFilter},
+			c.logger.With("component", "sink-k8s-event"),
+		)
+		if sinkErr != nil {
+			return fmt.Errorf("controller: creating kubernetes event sink: %w", sinkErr)
+		}
+		activeSinks = append(activeSinks, k8sEventSink)
+		c.logger.Info("kubernetes event sink enabled", "severityFilter", c.config.Sinks.KubernetesEvent.SeverityFilter)
+	}
 
 	// 5. Create the analyzer. Default to noop for v1 when no LLM
 	// credentials are available.
@@ -252,6 +279,40 @@ func (c *Controller) Run(ctx context.Context) error {
 		return fmt.Errorf("controller: starting pipeline: %w", err)
 	}
 
+	// 7b. Create the detector bridge and wire it as a second shard change
+	// callback. This must be registered after the informer manager so that
+	// informer factories exist when the bridge tries to register event handlers.
+	detBridge, err := newDetectorBridge(
+		c.logger.With("component", "detector-bridge"),
+		c.config,
+		p,
+		informerMgr,
+	)
+	if err != nil {
+		return fmt.Errorf("controller: creating detector bridge: %w", err)
+	}
+	shardMgr.OnShardChange(detBridge.HandleShardChange)
+
+	// 7c. Register health-sync callback: when new namespaces are assigned,
+	// mark informers as not-synced until caches populate, then re-mark synced.
+	// With zero informers at startup, the state is vacuously "synced".
+	shardMgr.OnShardChange(func(added, _ []string) {
+		if len(added) == 0 {
+			return
+		}
+		// New informer factories were created; mark not-synced until caches populate.
+		c.healthHandler.SetInformersSynced(false)
+		go func() {
+			syncCtx, syncCancel := context.WithTimeout(ctx, 30*time.Second)
+			defer syncCancel()
+			synced := informerMgr.WaitForCacheSync(syncCtx)
+			c.healthHandler.SetInformersSynced(synced)
+			if !synced {
+				c.logger.Warn("informer cache sync incomplete after shard change")
+			}
+		}()
+	})
+
 	// 8. Set up leader election callbacks.
 	callbacks := &controllerLeaderCallbacks{
 		controller: c,
@@ -273,10 +334,11 @@ func (c *Controller) Run(ctx context.Context) error {
 	}
 	c.leaderElector = leaderElector
 
-	// Mark health: informers will sync as namespaces are assigned.
-	// Set initial detector count to 1 (built-in pipeline is active).
+	// Set detector count from actual enabled detectors. Informers are
+	// vacuously synced at startup (no factories exist yet); the sync
+	// callback in step 7c will mark false→true on each shard change.
 	c.healthHandler.SetInformersSynced(true)
-	c.healthHandler.SetDetectorCount(1)
+	c.healthHandler.SetDetectorCount(detBridge.DetectorCount())
 
 	c.logger.Info("controller initialized, starting subsystems",
 		"identity", identity,
@@ -292,6 +354,31 @@ func (c *Controller) Run(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		c.runHeartbeat(ctx)
+	}()
+
+	// Periodic API server health check to keep readiness accurate.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.runAPIServerHealthCheck(ctx)
+	}()
+
+	// Periodic detector scan for time-based detectors (e.g., PodStuckPending).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		detBridge.RunPeriodicScan(ctx, 30*time.Second)
+	}()
+
+	// Shard follower sync: all replicas periodically read the shard map
+	// ConfigMap. For the leader this is redundant (coordinator applies
+	// locally), but it ensures followers pick up their namespace assignments.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := shardMgr.RunFollower(ctx); err != nil && ctx.Err() == nil {
+			c.logger.Error("shard follower error", "error", err)
+		}
 	}()
 
 	// Leader election runs until context cancellation.
@@ -384,6 +471,27 @@ func (c *Controller) runHeartbeat(ctx context.Context) {
 			return
 		case <-ticker.C:
 			c.healthHandler.UpdateHeartbeat()
+		}
+	}
+}
+
+// runAPIServerHealthCheck periodically verifies the Kubernetes API server
+// is reachable and updates the readiness probe accordingly.
+func (c *Controller) runAPIServerHealthCheck(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, err := c.clientset.Discovery().ServerVersion()
+			reachable := err == nil
+			c.healthHandler.SetAPIServerReachable(reachable)
+			if !reachable {
+				c.logger.Warn("API server health check failed", "error", err)
+			}
 		}
 	}
 }

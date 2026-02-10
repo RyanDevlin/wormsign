@@ -3,7 +3,6 @@ package shard
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -215,10 +214,32 @@ func TestManager_MultipleReplicas_Coordinator(t *testing.T) {
 	}
 	createFakeNamespaces(t, client, namespaces...)
 
-	// Create coordinator as replica 0 of 3.
-	mgr, err := NewManager(client, "wormsign-system", "0", 3,
+	// Create 3 fake controller pods for peer discovery.
+	peerNames := []string{"controller-aaa", "controller-bbb", "controller-ccc"}
+	peerLabel := "app=wormsign"
+	for _, name := range peerNames {
+		_, err := client.CoreV1().Pods("wormsign-system").Create(
+			context.Background(),
+			&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: "wormsign-system",
+					Labels:    map[string]string{"app": "wormsign"},
+				},
+				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			metav1.CreateOptions{},
+		)
+		if err != nil {
+			t.Fatalf("creating pod %q: %v", name, err)
+		}
+	}
+
+	// Create coordinator as replica "controller-aaa" of 3.
+	mgr, err := NewManager(client, "wormsign-system", "controller-aaa", 3,
 		WithLogger(silentLogger()),
 		WithReconcileInterval(time.Hour),
+		WithPeerSelector(peerLabel),
 	)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -241,17 +262,16 @@ func TestManager_MultipleReplicas_Coordinator(t *testing.T) {
 		t.Errorf("NumReplicas = %d, want 3", shardMap.NumReplicas)
 	}
 
-	// Verify all namespaces are assigned exactly once.
+	// Verify all namespaces are assigned exactly once using pod name keys.
 	allAssigned := make(map[string]bool)
-	for i := 0; i < 3; i++ {
-		key := fmt.Sprintf("%d", i)
-		for _, ns := range shardMap.Assignments[key] {
+	for i, peer := range peerNames {
+		for _, ns := range shardMap.Assignments[peer] {
 			if allAssigned[ns] {
 				t.Errorf("namespace %q assigned to multiple replicas", ns)
 			}
 			allAssigned[ns] = true
 		}
-		t.Logf("replica %d: %v", i, shardMap.Assignments[key])
+		t.Logf("replica %d (%s): %v", i, peer, shardMap.Assignments[peer])
 	}
 	for _, ns := range namespaces {
 		if !allAssigned[ns] {

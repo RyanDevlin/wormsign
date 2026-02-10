@@ -1,0 +1,67 @@
+# Dockerfile.e2e — Fully self-contained e2e test environment.
+#
+# Runs Docker-in-Docker so Kind can create cluster nodes as nested containers.
+# Usage:
+#   docker build -f Dockerfile.e2e -t wormsign-e2e-runner .
+#   docker run --rm --privileged wormsign-e2e-runner
+#
+# Pass extra go test flags after the image name:
+#   docker run --rm --privileged wormsign-e2e-runner -run TestE2E_SingleReplica
+
+# --- Stage 1: Go toolchain source ---
+FROM golang:1.25-alpine AS go-toolchain
+
+# --- Stage 2: Final image (DinD + Go + k8s tools + project source) ---
+FROM docker:27-dind
+
+# Pinned tool versions — bump these as needed.
+ARG KIND_VERSION=v0.27.0
+ARG KUBECTL_VERSION=v1.31.4
+ARG HELM_VERSION=v3.17.1
+
+# Install Go toolchain from the golang image.
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:/go/bin:${PATH}"
+ENV GOPATH="/go"
+
+# Install OS-level dependencies needed by Go and the test harness.
+RUN apk add --no-cache bash curl git
+
+# Install kind.
+RUN curl -Lo /usr/local/bin/kind \
+        "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64" && \
+    chmod +x /usr/local/bin/kind
+
+# Install kubectl.
+RUN curl -Lo /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
+    chmod +x /usr/local/bin/kubectl
+
+# Install helm.
+RUN curl -Lo /tmp/helm.tar.gz \
+        "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" && \
+    tar -xzf /tmp/helm.tar.gz -C /tmp && \
+    mv /tmp/linux-amd64/helm /usr/local/bin/helm && \
+    rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
+
+# Set tool paths for the Go test harness (matches resolveToolPaths defaults).
+ENV KIND=kind
+ENV KUBECTL=kubectl
+ENV HELM=helm
+ENV DOCKER=docker
+
+# --- Project source ---
+WORKDIR /workspace
+
+# Cache Go module downloads (this layer only rebuilds when go.mod/go.sum change).
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy full project source (Dockerfile, Helm chart, CRDs, test fixtures, etc.).
+COPY . .
+
+# Entrypoint: start dockerd, wait for it, then run e2e tests.
+COPY hack/e2e-entrypoint.sh /usr/local/bin/e2e-entrypoint.sh
+RUN chmod +x /usr/local/bin/e2e-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/e2e-entrypoint.sh"]

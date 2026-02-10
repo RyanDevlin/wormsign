@@ -1,0 +1,19 @@
+# Triggers: PodStuckPending detector
+# A pod requesting impossibly large resources. It will stay in Pending forever.
+# The detector fires after 15 minutes (default threshold).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fault-stuck-pending
+  namespace: default
+  labels:
+    app: wormsign-fault-test
+    fault-type: stuck-pending
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25-alpine
+      resources:
+        requests:
+          cpu: "100"
+          memory: "512Gi"

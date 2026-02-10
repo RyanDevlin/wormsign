@@ -33,7 +33,7 @@ func TestS3Sink_SeverityFilter(t *testing.T) {
 
 func TestS3Sink_Deliver_NilReport(t *testing.T) {
 	s := &S3Sink{logger: silentLogger()}
-	err := s.Deliver(nil, nil)
+	err := s.Deliver(context.TODO(), nil)
 	if err == nil {
 		t.Fatal("Deliver(nil) should return error")
 	}

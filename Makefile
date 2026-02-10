@@ -42,6 +42,27 @@ test: ## Run tests
 build: ## Build the project
 	go build ./...
 
+.PHONY: test-e2e
+test-e2e: ## Run e2e tests in a container (requires only Docker)
+	docker build -f Dockerfile.e2e -t wormsign-e2e-runner .
+	docker volume rm -f wormsign-e2e-docker >/dev/null 2>&1 || true
+	docker run --rm --privileged \
+		-v wormsign-e2e-docker:/var/lib/docker \
+		wormsign-e2e-runner; \
+	exit_code=$$?; \
+	docker volume rm -f wormsign-e2e-docker >/dev/null 2>&1 || true; \
+	exit $$exit_code
+
+.PHONY: test-e2e-local
+test-e2e-local: ## Run e2e tests natively (requires kind, kubectl, helm on PATH)
+	go test -tags e2e -v -timeout 30m ./test/e2e/
+
+.PHONY: clean-e2e
+clean-e2e: ## Remove e2e Docker image, volume, and build cache
+	docker volume rm -f wormsign-e2e-docker >/dev/null 2>&1 || true
+	docker rmi -f wormsign-e2e-runner >/dev/null 2>&1 || true
+	docker builder prune -f --filter "label=com.docker.compose.project" >/dev/null 2>&1 || true
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint against code
 	$(GOLANGCI_LINT) run ./...

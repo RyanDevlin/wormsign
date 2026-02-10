@@ -154,7 +154,7 @@ func TestBuildLoggerLevels(t *testing.T) {
 				t.Fatalf("buildLogger() error: %v", err)
 			}
 			// The handler should be enabled at the configured level.
-			if !logger.Enabled(nil, tt.slogLvl) {
+			if !logger.Enabled(context.TODO(), tt.slogLvl) {
 				t.Errorf("logger should be enabled at level %s", tt.level)
 			}
 		})

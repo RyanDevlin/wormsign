@@ -1,0 +1,8 @@
+# Lightweight Kind config for Docker-in-Docker environments.
+# Uses a single node to reduce memory pressure — control-plane nodes in Kind
+# can schedule workloads by default (no NoSchedule taint), so all tests
+# (including multi-replica) still work.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
