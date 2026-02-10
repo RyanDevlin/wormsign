@@ -159,9 +159,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	namespace := resolveNamespace()
 	// Build the peer selector for multi-replica shard discovery.
 	// Matches the Helm deployment's selector labels + component label.
-	peerSelector := fmt.Sprintf(
-		"app.kubernetes.io/name=k8s-wormsign,app.kubernetes.io/component=controller",
-	)
+	peerSelector := "app.kubernetes.io/name=k8s-wormsign,app.kubernetes.io/component=controller"
 
 	shardMgr, err := shard.NewManager(
 		c.clientset,
