@@ -213,6 +213,14 @@ metrics:
     interval: 30s
     additionalLabels: {}
 
+# --- Controller tuning (advanced) ---
+# Lower values make the controller react faster but increase API server load.
+# Useful for testing environments.
+controllerTuning:
+  detectorScanInterval: 30s
+  shardReconcileInterval: 30s
+  informerResyncPeriod: 30m
+
 # --- Health probes ---
 health:
   port: 8081

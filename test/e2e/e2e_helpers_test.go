@@ -56,7 +56,10 @@ const (
 )
 
 // helmInstall deploys Wormsign with the given replica count.
-func helmInstall(t *testing.T, ns string, replicas int) {
+// Optional extraSets are appended as additional --set arguments, e.g.:
+//
+//	helmInstall(t, ns, 1, "correlation.enabled=true", "detectors.pvcStuckBinding.enabled=true")
+func helmInstall(t *testing.T, ns string, replicas int, extraSets ...string) {
 	t.Helper()
 	chart := filepath.Join(projectRoot, chartPath)
 	args := []string{
@@ -66,20 +69,26 @@ func helmInstall(t *testing.T, ns string, replicas int) {
 		"--set", "image.tag=" + imageTag,
 		"--set", "image.pullPolicy=Never",
 		"--set", fmt.Sprintf("replicaCount=%d", replicas),
-		"--set", "analyzer.backend=noop",
+		"--set", "analyzer.backend=rules",
 		"--set", "logging.level=debug",
 		"--set", "correlation.enabled=false",
 		"--set", "sinks.kubernetesEvent.enabled=true",
 		"--set", "sinks.kubernetesEvent.severityFilter={critical,warning,info}",
 		"--set", "detectors.jobDeadlineExceeded.enabled=true",
-		"--set", "detectors.podStuckPending.threshold=1m",
-		"--set", "detectors.podStuckPending.cooldown=2m",
-		"--set", "detectors.podCrashLoop.cooldown=2m",
-		"--set", "detectors.podFailed.cooldown=2m",
-		"--set", "detectors.nodeNotReady.cooldown=2m",
+		"--set", "detectors.podStuckPending.threshold=30s",
+		"--set", "detectors.podStuckPending.cooldown=30s",
+		"--set", "detectors.podCrashLoop.cooldown=30s",
+		"--set", "detectors.podFailed.cooldown=30s",
+		"--set", "detectors.nodeNotReady.cooldown=30s",
+		"--set", "controllerTuning.detectorScanInterval=5s",
+		"--set", "controllerTuning.shardReconcileInterval=5s",
+		"--set", "controllerTuning.informerResyncPeriod=1m",
 		"--set", "metrics.enabled=true",
-		"--wait", "--timeout", "180s",
 	}
+	for _, s := range extraSets {
+		args = append(args, "--set", s)
+	}
+	args = append(args, "--wait", "--timeout", "180s")
 	if err := runCmdStreamed(helmBin, args...); err != nil {
 		t.Fatalf("helm install failed: %v", err)
 	}
@@ -286,7 +295,7 @@ func waitForWormsignEvent(t *testing.T, ns, resourceName string, timeout time.Du
 				lastLog = time.Now()
 			}
 		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 
 	// On timeout, dump controller logs to help diagnose.
@@ -329,6 +338,10 @@ func dumpControllerLogs(t *testing.T, ns string) {
 }
 
 type k8sEvent struct {
+	Metadata struct {
+		Labels      map[string]string `json:"labels"`
+		Annotations map[string]string `json:"annotations"`
+	} `json:"metadata"`
 	InvolvedObject struct {
 		Kind      string `json:"kind"`
 		Name      string `json:"name"`
@@ -337,6 +350,67 @@ type k8sEvent struct {
 	Reason  string `json:"reason"`
 	Message string `json:"message"`
 	Type    string `json:"type"`
+	Action  string `json:"action"`
+}
+
+// getWormsignEventForResource returns the first WormsignRCA event matching
+// the given resource name, or nil if not found.
+func getWormsignEventForResource(ns, resourceName string) *k8sEvent {
+	events, err := getWormsignEvents(ns)
+	if err != nil {
+		return nil
+	}
+	for _, ev := range events {
+		if resourceName == "" || ev.InvolvedObject.Name == resourceName {
+			return &ev
+		}
+	}
+	return nil
+}
+
+// assertEventHasRulesAnalysis checks that a WormsignRCA event's message
+// reflects rules-based analysis rather than the noop placeholder, and that
+// labels/annotations are populated for Alert→Root Cause workflow.
+func assertEventHasRulesAnalysis(t *testing.T, ns, resourceName string) {
+	t.Helper()
+	ev := getWormsignEventForResource(ns, resourceName)
+	if ev == nil {
+		t.Fatalf("no WormsignRCA event found for %s in %s", resourceName, ns)
+	}
+	t.Logf("event message: %s", ev.Message)
+
+	// Noop analyzer produces: [unknown] Automated analysis not performed — raw diagnostics attached —
+	// Rules analyzer produces a real category and root cause.
+	if strings.Contains(ev.Message, "Automated analysis not performed") {
+		t.Errorf("event contains noop placeholder; expected rules-based analysis: %s", ev.Message)
+	}
+	if strings.HasPrefix(ev.Message, "[unknown]") {
+		t.Errorf("event has [unknown] category; expected specific category from rules analyzer: %s", ev.Message)
+	}
+
+	// Verify labels are populated.
+	if cat := ev.Metadata.Labels["wormsign.io/category"]; cat == "" || cat == "unknown" {
+		t.Errorf("label wormsign.io/category = %q, want non-empty and not unknown", cat)
+	}
+	if sev := ev.Metadata.Labels["wormsign.io/severity"]; sev == "" {
+		t.Error("label wormsign.io/severity should not be empty")
+	}
+	if det := ev.Metadata.Labels["wormsign.io/detector"]; det == "" {
+		t.Error("label wormsign.io/detector should not be empty")
+	}
+
+	// Verify annotations are populated.
+	if rem := ev.Metadata.Annotations["wormsign.io/remediation"]; rem == "" {
+		t.Error("annotation wormsign.io/remediation should not be empty")
+	}
+	if ev.Metadata.Annotations["wormsign.io/analyzer"] != "rules" {
+		t.Errorf("annotation wormsign.io/analyzer = %q, want rules", ev.Metadata.Annotations["wormsign.io/analyzer"])
+	}
+
+	// Verify event action field.
+	if ev.Action != "Analyzed" {
+		t.Errorf("event Action = %q, want Analyzed", ev.Action)
+	}
 }
 
 // getWormsignEvents fetches all WormsignRCA events in a namespace.
@@ -628,4 +702,237 @@ spec:
 	})
 	t.Logf("injected bad-image pod %s/%s", ns, name)
 	return name
+}
+
+// injectDeadlineJob creates a Job with a short activeDeadlineSeconds that will
+// exceed its deadline. Returns the job name.
+func injectDeadlineJob(t *testing.T, ns string) string {
+	t.Helper()
+	name := "fault-deadline-" + randomSuffix(6)
+	yaml := fmt.Sprintf(`apiVersion: batch/v1
+kind: Job
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app: wormsign-fault-test
+    fault-type: deadline-exceeded
+spec:
+  activeDeadlineSeconds: 5
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: wormsign-fault-test
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: sleeper
+          image: busybox:1.36
+          command: ["sleep", "60"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+`, name, ns)
+	if err := kubectlApplyStdin(yaml); err != nil {
+		t.Fatalf("inject deadline job: %v", err)
+	}
+	t.Cleanup(func() {
+		kubectl("delete", "job", name, "-n", ns, "--ignore-not-found")
+	})
+	t.Logf("injected deadline-exceeded job %s/%s", ns, name)
+	return name
+}
+
+// injectStuckPVC creates a PVC referencing a nonexistent StorageClass so it
+// stays Pending indefinitely. Returns the PVC name.
+func injectStuckPVC(t *testing.T, ns string) string {
+	t.Helper()
+	name := "fault-pvc-" + randomSuffix(6)
+	yaml := fmt.Sprintf(`apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app: wormsign-fault-test
+    fault-type: stuck-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nonexistent-sc-wormsign
+  resources:
+    requests:
+      storage: 1Gi
+`, name, ns)
+	if err := kubectlApplyStdin(yaml); err != nil {
+		t.Fatalf("inject stuck PVC: %v", err)
+	}
+	t.Cleanup(func() {
+		kubectl("delete", "pvc", name, "-n", ns, "--ignore-not-found")
+	})
+	t.Logf("injected stuck PVC %s/%s", ns, name)
+	return name
+}
+
+// injectFailingDeployment creates a Deployment whose pods crash-loop.
+// Returns the deployment name.
+func injectFailingDeployment(t *testing.T, ns string, replicas int) string {
+	t.Helper()
+	name := "fault-deploy-" + randomSuffix(6)
+	yaml := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app: wormsign-fault-test
+    fault-type: failing-deployment
+spec:
+  replicas: %d
+  selector:
+    matchLabels:
+      app: wormsign-fault-test
+      deploy: %s
+  template:
+    metadata:
+      labels:
+        app: wormsign-fault-test
+        deploy: %s
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: crash
+          image: busybox:1.36
+          command: ["sh", "-c", "exit 1"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+`, name, ns, replicas, name, name)
+	if err := kubectlApplyStdin(yaml); err != nil {
+		t.Fatalf("inject failing deployment: %v", err)
+	}
+	t.Cleanup(func() {
+		kubectl("delete", "deployment", name, "-n", ns, "--ignore-not-found")
+	})
+	t.Logf("injected failing deployment %s/%s with %d replicas", ns, name, replicas)
+	return name
+}
+
+// injectWebhookReceiver creates a simple HTTP server pod and Service that logs
+// incoming POST bodies to stdout. Returns the pod name and the in-cluster
+// service URL.
+func injectWebhookReceiver(t *testing.T, ns string) (podName, svcURL string) {
+	t.Helper()
+	podName = "webhook-receiver"
+	svcName := "webhook-receiver"
+
+	// Python one-liner HTTP server that logs POST bodies.
+	yaml := fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    app: webhook-receiver
+spec:
+  containers:
+    - name: server
+      image: python:3.12-alpine
+      command:
+        - python3
+        - -c
+        - |
+          from http.server import HTTPServer, BaseHTTPRequestHandler
+          import sys
+          class H(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  length = int(self.headers.get('Content-Length', 0))
+                  body = self.rfile.read(length).decode()
+                  print('WEBHOOK_RECEIVED: ' + body, flush=True)
+                  self.send_response(200)
+                  self.end_headers()
+                  self.wfile.write(b'ok')
+              def log_message(self, fmt, *args):
+                  pass
+          HTTPServer(('', 8080), H).serve_forever()
+      ports:
+        - containerPort: 8080
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  selector:
+    app: webhook-receiver
+  ports:
+    - port: 8080
+      targetPort: 8080
+`, podName, ns, svcName, ns)
+	if err := kubectlApplyStdin(yaml); err != nil {
+		t.Fatalf("inject webhook receiver: %v", err)
+	}
+	t.Cleanup(func() {
+		kubectl("delete", "pod", podName, "-n", ns, "--ignore-not-found")
+		kubectl("delete", "service", svcName, "-n", ns, "--ignore-not-found")
+	})
+
+	// Wait for receiver pod to be ready.
+	pollUntil(t, 120*time.Second, 5*time.Second, "webhook receiver ready", func() (bool, error) {
+		out, err := kubectl("get", "pod", podName, "-n", ns, "-o", "jsonpath={.status.phase}")
+		if err != nil {
+			return false, err
+		}
+		return strings.TrimSpace(out) == "Running", nil
+	})
+
+	svcURL = fmt.Sprintf("http://%s.%s.svc.cluster.local:8080", svcName, ns)
+	t.Logf("webhook receiver ready at %s", svcURL)
+	return podName, svcURL
+}
+
+// checkWebhookReceived polls the webhook receiver pod's logs for the expected
+// content string. Fails if not found within the timeout.
+func checkWebhookReceived(t *testing.T, ns, receiverPod, expectedContent string, timeout time.Duration) {
+	t.Helper()
+	pollUntil(t, timeout, 5*time.Second, "webhook payload containing "+expectedContent, func() (bool, error) {
+		out, err := kubectl("logs", receiverPod, "-n", ns)
+		if err != nil {
+			return false, fmt.Errorf("get receiver logs: %w", err)
+		}
+		return strings.Contains(out, expectedContent), nil
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Negative assertions
+// ---------------------------------------------------------------------------
+
+// assertNoWormsignEvent polls for the given duration and fails the test if
+// any WormsignRCA event matching resourceName appears. Used for negative tests
+// (filters, exclusion annotations).
+func assertNoWormsignEvent(t *testing.T, ns, resourceName string, wait time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(wait)
+	for time.Now().Before(deadline) {
+		events, err := getWormsignEvents(ns)
+		if err == nil {
+			for _, ev := range events {
+				if resourceName == "" || ev.InvolvedObject.Name == resourceName {
+					t.Fatalf("unexpected WormsignRCA event found for %s in %s: %s",
+						resourceName, ns, ev.Message)
+				}
+			}
+		}
+		time.Sleep(3 * time.Second)
+	}
+	t.Logf("confirmed: no WormsignRCA event for %s in %s after %v", resourceName, ns, wait)
 }

@@ -57,15 +57,32 @@ func (s *collectingSink) Reports() []*model.RCAReport {
 // events flow through immediately unless overridden by corrCfg.
 func newTestPipeline(t *testing.T, filterEngine *filter.Engine, corrCfg *correlator.Config) (*pipeline.Pipeline, *collectingSink) {
 	t.Helper()
+	ana, err := analyzer.NewNoopAnalyzer(slog.Default())
+	if err != nil {
+		t.Fatalf("creating noop analyzer: %v", err)
+	}
+	return newTestPipelineWithAnalyzer(t, ana, filterEngine, corrCfg)
+}
+
+// newTestPipelineWithRulesAnalyzer is like newTestPipeline but uses the
+// rules-based analyzer instead of noop.
+func newTestPipelineWithRulesAnalyzer(t *testing.T, filterEngine *filter.Engine, corrCfg *correlator.Config) (*pipeline.Pipeline, *collectingSink) {
+	t.Helper()
+	ana, err := analyzer.NewRulesAnalyzer(slog.Default())
+	if err != nil {
+		t.Fatalf("creating rules analyzer: %v", err)
+	}
+	return newTestPipelineWithAnalyzer(t, ana, filterEngine, corrCfg)
+}
+
+// newTestPipelineWithAnalyzer constructs a Pipeline wired with the given
+// analyzer, filter engine, and a collecting sink.
+func newTestPipelineWithAnalyzer(t *testing.T, ana analyzer.Analyzer, filterEngine *filter.Engine, corrCfg *correlator.Config) (*pipeline.Pipeline, *collectingSink) {
+	t.Helper()
 
 	logger := slog.Default()
 	reg := prometheus.NewRegistry()
 	m := metrics.NewMetrics(reg)
-
-	ana, err := analyzer.NewNoopAnalyzer(logger)
-	if err != nil {
-		t.Fatalf("creating noop analyzer: %v", err)
-	}
 
 	sink := &collectingSink{}
 
@@ -611,6 +628,206 @@ func TestIntegration_MultipleEvents_Pipeline(t *testing.T) {
 		if r.AnalyzerBackend != "noop" {
 			t.Errorf("report[%d].AnalyzerBackend = %q, want noop", i, r.AnalyzerBackend)
 		}
+	}
+
+	p.Stop()
+}
+
+// --------------------------------------------------------------------------
+// Integration tests: Rules analyzer through the pipeline
+// --------------------------------------------------------------------------
+
+// TestIntegration_RulesAnalyzer_PodCrashLoop verifies that the rules analyzer
+// produces a meaningful report (non-zero confidence, proper backend name,
+// detector-derived root cause) when wired into the full pipeline.
+func TestIntegration_RulesAnalyzer_PodCrashLoop(t *testing.T) {
+	p, sink := newTestPipelineWithRulesAnalyzer(t, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("starting pipeline: %v", err)
+	}
+
+	ev := makeFaultEvent(t,
+		"PodCrashLoop",
+		model.SeverityCritical,
+		model.ResourceRef{Kind: "Pod", Namespace: "prod", Name: "api-server-xyz", UID: "uid-rules-1"},
+		"Container app has restarted 8 times",
+		map[string]string{"app": "api-server"},
+		nil,
+	)
+
+	p.SubmitFaultEvent(ev, filterInputFor(ev, filter.NamespaceMeta{Name: "prod"}, nil))
+
+	reports := waitForReports(sink, 1, 10*time.Second)
+	if len(reports) == 0 {
+		t.Fatal("expected at least 1 report, got 0")
+	}
+
+	report := reports[0]
+	if report.FaultEventID != ev.ID {
+		t.Errorf("FaultEventID = %q, want %q", report.FaultEventID, ev.ID)
+	}
+	if report.AnalyzerBackend != "rules" {
+		t.Errorf("AnalyzerBackend = %q, want %q", report.AnalyzerBackend, "rules")
+	}
+	// Rules analyzer should produce non-zero confidence (noop gives 0.0).
+	if report.Confidence <= 0.0 {
+		t.Errorf("Confidence = %f, want > 0 (rules analyzer should set confidence)", report.Confidence)
+	}
+	// Root cause should mention the detector, not the generic noop placeholder.
+	if report.RootCause == "" {
+		t.Error("RootCause should not be empty")
+	}
+	if report.RootCause == "Automated analysis not performed — raw diagnostics attached" {
+		t.Error("RootCause should not be the noop placeholder text")
+	}
+	// Category should be set to something meaningful.
+	if !model.ValidCategories[report.Category] {
+		t.Errorf("Category %q is not valid", report.Category)
+	}
+	// Remediation should have actionable steps.
+	if len(report.Remediation) == 0 {
+		t.Error("Remediation should have at least one step")
+	}
+	// RawAnalysis (evidence) should not be empty.
+	if report.RawAnalysis == "" {
+		t.Error("RawAnalysis should contain evidence summary")
+	}
+	// Tokens should be zero (no LLM used).
+	if report.TokensUsed.Total() != 0 {
+		t.Errorf("TokensUsed = %+v, want zero for rules analyzer", report.TokensUsed)
+	}
+
+	p.Stop()
+}
+
+// TestIntegration_RulesAnalyzer_MultipleDetectors verifies that the rules
+// analyzer produces distinct reports for different detector types, each with
+// the correct backend and non-zero confidence.
+func TestIntegration_RulesAnalyzer_MultipleDetectors(t *testing.T) {
+	p, sink := newTestPipelineWithRulesAnalyzer(t, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("starting pipeline: %v", err)
+	}
+
+	defaultNS := filter.NamespaceMeta{Name: "default"}
+
+	events := []*model.FaultEvent{
+		makeFaultEvent(t, "PodCrashLoop", model.SeverityCritical,
+			model.ResourceRef{Kind: "Pod", Namespace: "default", Name: "crash-pod", UID: "uid-rm-1"},
+			"Container restarted 5 times", nil, nil),
+		makeFaultEvent(t, "PodFailed", model.SeverityWarning,
+			model.ResourceRef{Kind: "Pod", Namespace: "default", Name: "failed-pod", UID: "uid-rm-2"},
+			"Pod entered Failed state", nil, nil),
+		makeFaultEvent(t, "JobDeadlineExceeded", model.SeverityWarning,
+			model.ResourceRef{Kind: "Job", Namespace: "default", Name: "etl-job", UID: "uid-rm-3"},
+			"Job exceeded deadline", nil, nil),
+		makeFaultEvent(t, "PVCStuckBinding", model.SeverityWarning,
+			model.ResourceRef{Kind: "PersistentVolumeClaim", Namespace: "default", Name: "data-pvc", UID: "uid-rm-4"},
+			"PVC stuck in Pending", nil, nil),
+	}
+
+	for _, ev := range events {
+		p.SubmitFaultEvent(ev, filterInputFor(ev, defaultNS, nil))
+	}
+
+	reports := waitForReports(sink, len(events), 15*time.Second)
+	if len(reports) != len(events) {
+		t.Fatalf("expected %d reports, got %d", len(events), len(reports))
+	}
+
+	for i, r := range reports {
+		if r.AnalyzerBackend != "rules" {
+			t.Errorf("report[%d].AnalyzerBackend = %q, want rules", i, r.AnalyzerBackend)
+		}
+		if r.Confidence <= 0.0 {
+			t.Errorf("report[%d].Confidence = %f, want > 0", i, r.Confidence)
+		}
+		if !model.ValidCategories[r.Category] {
+			t.Errorf("report[%d].Category = %q, not a valid category", i, r.Category)
+		}
+	}
+
+	p.Stop()
+}
+
+// TestIntegration_RulesAnalyzer_NodeCascade verifies that the rules analyzer
+// handles correlated SuperEvents from the correlator, producing a systemic
+// report with related resources populated.
+func TestIntegration_RulesAnalyzer_NodeCascade(t *testing.T) {
+	corrCfg := &correlator.Config{
+		Enabled:        true,
+		WindowDuration: 500 * time.Millisecond,
+		Rules: correlator.RulesConfig{
+			NodeCascade: correlator.NodeCascadeConfig{
+				Enabled:        true,
+				MinPodFailures: 2,
+			},
+			DeploymentRollout: correlator.DeploymentRolloutConfig{Enabled: false, MinPodFailures: 1},
+			StorageCascade:    correlator.StorageCascadeConfig{Enabled: false},
+			NamespaceStorm:    correlator.NamespaceStormConfig{Enabled: false, Threshold: 1},
+		},
+	}
+
+	p, sink := newTestPipelineWithRulesAnalyzer(t, nil, corrCfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("starting pipeline: %v", err)
+	}
+
+	defaultNS := filter.NamespaceMeta{Name: "default"}
+
+	nodeEv := makeFaultEvent(t,
+		"NodeNotReady", model.SeverityCritical,
+		model.ResourceRef{Kind: "Node", Name: "worker-3", UID: "uid-rn-1"},
+		"Node worker-3 is NotReady", nil, nil,
+	)
+	p.SubmitFaultEvent(nodeEv, filterInputFor(nodeEv, defaultNS, nil))
+
+	pod1 := makeFaultEvent(t,
+		"PodCrashLoop", model.SeverityWarning,
+		model.ResourceRef{Kind: "Pod", Namespace: "default", Name: "app-1", UID: "uid-rn-2"},
+		"Container restarted", nil,
+		map[string]string{"wormsign.io/node-name": "worker-3"},
+	)
+	p.SubmitFaultEvent(pod1, filterInputFor(pod1, defaultNS, nil))
+
+	pod2 := makeFaultEvent(t,
+		"PodFailed", model.SeverityWarning,
+		model.ResourceRef{Kind: "Pod", Namespace: "default", Name: "app-2", UID: "uid-rn-3"},
+		"Pod failed", nil,
+		map[string]string{"wormsign.io/node-name": "worker-3"},
+	)
+	p.SubmitFaultEvent(pod2, filterInputFor(pod2, defaultNS, nil))
+
+	reports := waitForReports(sink, 1, 15*time.Second)
+	if len(reports) == 0 {
+		t.Fatal("expected at least 1 report from NodeCascade correlation, got 0")
+	}
+
+	report := reports[0]
+	if report.AnalyzerBackend != "rules" {
+		t.Errorf("AnalyzerBackend = %q, want rules", report.AnalyzerBackend)
+	}
+	if report.DiagnosticBundle.SuperEvent == nil {
+		t.Fatal("expected SuperEvent in diagnostic bundle")
+	}
+	// Rules analyzer should mark correlated events as systemic.
+	if !report.Systemic {
+		t.Error("SuperEvent report should be systemic")
+	}
+	if report.Confidence <= 0.0 {
+		t.Errorf("Confidence = %f, want > 0", report.Confidence)
 	}
 
 	p.Stop()

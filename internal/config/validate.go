@@ -12,6 +12,7 @@ var validAnalyzerBackends = map[string]bool{
 	"claude-bedrock": true,
 	"openai":         true,
 	"azure-openai":   true,
+	"rules":          true,
 	"noop":           true,
 }
 
@@ -58,6 +59,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateHealth(); err != nil {
+		return err
+	}
+	if err := c.validateControllerTuning(); err != nil {
 		return err
 	}
 	return nil
@@ -215,7 +219,7 @@ func (c *Config) validateGatherers() error {
 
 func (c *Config) validateAnalyzer() error {
 	if !validAnalyzerBackends[c.Analyzer.Backend] {
-		return fmt.Errorf("analyzer.backend %q is not valid: must be one of claude, claude-bedrock, openai, azure-openai, noop",
+		return fmt.Errorf("analyzer.backend %q is not valid: must be one of claude, claude-bedrock, openai, azure-openai, rules, noop",
 			c.Analyzer.Backend)
 	}
 
@@ -267,6 +271,8 @@ func (c *Config) validateAnalyzer() error {
 		if c.Analyzer.AzureOpenAI.DeploymentName == "" {
 			return fmt.Errorf("analyzer.azureOpenai.deploymentName must be set when backend is azure-openai")
 		}
+	case "rules":
+		// No additional validation needed for rules analyzer.
 	case "noop":
 		// No additional validation needed for noop.
 	}
@@ -338,6 +344,19 @@ func (c *Config) validateHealth() error {
 	}
 	if c.Health.Port == c.Metrics.Port {
 		return fmt.Errorf("health.port (%d) must not equal metrics.port (%d)", c.Health.Port, c.Metrics.Port)
+	}
+	return nil
+}
+
+func (c *Config) validateControllerTuning() error {
+	if c.ControllerTuning.DetectorScanInterval <= 0 {
+		return fmt.Errorf("controllerTuning.detectorScanInterval must be positive, got %s", c.ControllerTuning.DetectorScanInterval)
+	}
+	if c.ControllerTuning.ShardReconcileInterval <= 0 {
+		return fmt.Errorf("controllerTuning.shardReconcileInterval must be positive, got %s", c.ControllerTuning.ShardReconcileInterval)
+	}
+	if c.ControllerTuning.InformerResyncPeriod <= 0 {
+		return fmt.Errorf("controllerTuning.informerResyncPeriod must be positive, got %s", c.ControllerTuning.InformerResyncPeriod)
 	}
 	return nil
 }

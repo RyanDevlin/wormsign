@@ -18,7 +18,7 @@ func TestE2E_ScaleUp(t *testing.T) {
 
 	// Wait for 1-replica shard map.
 	var smBefore *shardMapData
-	pollUntil(t, 90*time.Second, 5*time.Second, "1-replica shard map", func() (bool, error) {
+	pollUntil(t, 45*time.Second, 3*time.Second, "1-replica shard map", func() (bool, error) {
 		smBefore = getShardMap(t, ctrlNs)
 		return smBefore != nil && len(smBefore.Assignments) == 1, nil
 	})
@@ -35,7 +35,7 @@ func TestE2E_ScaleUp(t *testing.T) {
 
 	// Wait for shard map to redistribute to 3 entries.
 	var smAfter *shardMapData
-	pollUntil(t, 120*time.Second, 5*time.Second, "3-replica shard map after scale-up", func() (bool, error) {
+	pollUntil(t, 60*time.Second, 3*time.Second, "3-replica shard map after scale-up", func() (bool, error) {
 		smAfter = getShardMap(t, ctrlNs)
 		return smAfter != nil && len(smAfter.Assignments) == 3, nil
 	})
@@ -66,7 +66,7 @@ func TestE2E_ScaleDown(t *testing.T) {
 
 	// Wait for 3-replica shard map.
 	var smBefore *shardMapData
-	pollUntil(t, 120*time.Second, 5*time.Second, "3-replica shard map", func() (bool, error) {
+	pollUntil(t, 60*time.Second, 3*time.Second, "3-replica shard map", func() (bool, error) {
 		smBefore = getShardMap(t, ctrlNs)
 		return smBefore != nil && len(smBefore.Assignments) == 3, nil
 	})
@@ -83,7 +83,7 @@ func TestE2E_ScaleDown(t *testing.T) {
 	// We only check that one replica owns all namespaces — the total count
 	// may differ from before because namespaces from other tests are cleaned
 	// up concurrently.
-	pollUntil(t, 120*time.Second, 5*time.Second, "1-replica shard map after scale-down", func() (bool, error) {
+	pollUntil(t, 60*time.Second, 3*time.Second, "1-replica shard map after scale-down", func() (bool, error) {
 		sm := getShardMap(t, ctrlNs)
 		return sm != nil && len(sm.Assignments) == 1, nil
 	})

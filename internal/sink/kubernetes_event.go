@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +37,7 @@ type KubernetesEventSink struct {
 	severityFilter []model.Severity
 	logger         *slog.Logger
 	retryCfg       retryConfig
+	instanceName   string
 }
 
 // NewKubernetesEventSink creates a new Kubernetes Event sink.
@@ -46,11 +49,17 @@ func NewKubernetesEventSink(clientset kubernetes.Interface, cfg KubernetesEventC
 		return nil, errNilLogger
 	}
 
+	instanceName, _ := os.Hostname()
+	if instanceName == "" {
+		instanceName = "wormsign"
+	}
+
 	return &KubernetesEventSink{
 		clientset:      clientset,
 		severityFilter: cfg.SeverityFilter,
 		logger:         logger,
 		retryCfg:       defaultRetryConfig(),
+		instanceName:   instanceName,
 	}, nil
 }
 
@@ -103,8 +112,13 @@ func (s *KubernetesEventSink) createEvent(ctx context.Context, ref model.Resourc
 		eventType = corev1.EventTypeNormal
 	}
 
-	message := truncateMessage(fmt.Sprintf("[%s] %s — %s",
-		report.Category, report.RootCause, report.BlastRadius))
+	var message string
+	if report.BlastRadius != "" {
+		message = fmt.Sprintf("[%s] %s — %s", report.Category, report.RootCause, report.BlastRadius)
+	} else {
+		message = fmt.Sprintf("[%s] %s", report.Category, report.RootCause)
+	}
+	message = truncateMessage(message)
 
 	namespace := ref.Namespace
 	if namespace == "" {
@@ -117,6 +131,18 @@ func (s *KubernetesEventSink) createEvent(ctx context.Context, ref model.Resourc
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "wormsign-",
 			Namespace:    namespace,
+			Labels: map[string]string{
+				"wormsign.io/category": report.Category,
+				"wormsign.io/severity": string(report.Severity),
+				"wormsign.io/detector": detectorName(report),
+				"wormsign.io/systemic": strconv.FormatBool(report.Systemic),
+			},
+			Annotations: map[string]string{
+				"wormsign.io/fault-event-id": report.FaultEventID,
+				"wormsign.io/confidence":     fmt.Sprintf("%.2f", report.Confidence),
+				"wormsign.io/analyzer":       report.AnalyzerBackend,
+				"wormsign.io/remediation":    strings.Join(report.Remediation, "\n"),
+			},
 		},
 		InvolvedObject: corev1.ObjectReference{
 			Kind:      ref.Kind,
@@ -124,11 +150,15 @@ func (s *KubernetesEventSink) createEvent(ctx context.Context, ref model.Resourc
 			Name:      ref.Name,
 			UID:       "",
 		},
-		Reason:         eventReasonRCA,
-		Message:        message,
-		Type:           eventType,
-		FirstTimestamp: now,
-		LastTimestamp:  now,
+		Reason:              eventReasonRCA,
+		Message:             message,
+		Type:                eventType,
+		FirstTimestamp:       now,
+		LastTimestamp:        now,
+		EventTime:           metav1.NewMicroTime(now.Time),
+		Action:              "Analyzed",
+		ReportingController: eventSource,
+		ReportingInstance:   s.instanceName,
 		Source: corev1.EventSource{
 			Component: eventSource,
 		},
@@ -139,6 +169,17 @@ func (s *KubernetesEventSink) createEvent(ctx context.Context, ref model.Resourc
 		return fmt.Errorf("creating event for %s: %w", ref.String(), err)
 	}
 	return nil
+}
+
+// detectorName extracts the detector or correlation rule name from the report.
+func detectorName(report *model.RCAReport) string {
+	if report.DiagnosticBundle.FaultEvent != nil {
+		return report.DiagnosticBundle.FaultEvent.DetectorName
+	}
+	if report.DiagnosticBundle.SuperEvent != nil {
+		return report.DiagnosticBundle.SuperEvent.CorrelationRule
+	}
+	return "unknown"
 }
 
 // targetResources extracts the resources that should receive events from

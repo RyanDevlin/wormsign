@@ -172,6 +172,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		shard.WithExcludeNamespaces(c.config.Filters.ExcludeNamespaces),
 		shard.WithMetricsFunc(c.metrics.ShardNamespaces.Set),
 		shard.WithPeerSelector(peerSelector),
+		shard.WithReconcileInterval(c.config.ControllerTuning.ShardReconcileInterval),
 	)
 	if err != nil {
 		return fmt.Errorf("controller: creating shard manager: %w", err)
@@ -184,6 +185,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	informerMgr, err := shard.NewInformerManager(
 		c.clientset,
 		shard.WithInformerLogger(c.logger.With("component", "informer-manager")),
+		shard.WithResyncPeriod(c.config.ControllerTuning.InformerResyncPeriod),
 	)
 	if err != nil {
 		return fmt.Errorf("controller: creating informer manager: %w", err)
@@ -221,11 +223,40 @@ func (c *Controller) Run(ctx context.Context) error {
 		c.logger.Info("kubernetes event sink enabled", "severityFilter", c.config.Sinks.KubernetesEvent.SeverityFilter)
 	}
 
-	// 5. Create the analyzer. Default to noop for v1 when no LLM
-	// credentials are available.
-	noopAnalyzer, err := analyzer.NewNoopAnalyzer(c.logger.With("component", "analyzer"))
+	// Webhook sink (generic HTTP POST of RCA reports).
+	if c.config.Sinks.Webhook.Enabled {
+		severityFilter := make([]model.Severity, len(c.config.Sinks.Webhook.SeverityFilter))
+		for i, s := range c.config.Sinks.Webhook.SeverityFilter {
+			severityFilter[i] = model.Severity(s)
+		}
+		webhookSink, sinkErr := sink.NewWebhookSink(sink.WebhookConfig{
+			URL:            c.config.Sinks.Webhook.URL,
+			Headers:        c.config.Sinks.Webhook.Headers,
+			SeverityFilter: severityFilter,
+			AllowedDomains: c.config.Sinks.Webhook.AllowedDomains,
+		}, c.logger.With("component", "sink-webhook"))
+		if sinkErr != nil {
+			return fmt.Errorf("controller: creating webhook sink: %w", sinkErr)
+		}
+		activeSinks = append(activeSinks, webhookSink)
+		c.logger.Info("webhook sink enabled", "url", c.config.Sinks.Webhook.URL)
+	}
+
+	// 5. Create the analyzer based on configured backend.
+	var activeAnalyzer analyzer.Analyzer
+	switch c.config.Analyzer.Backend {
+	case "rules":
+		activeAnalyzer, err = analyzer.NewRulesAnalyzer(c.logger.With("component", "analyzer"))
+	case "noop":
+		activeAnalyzer, err = analyzer.NewNoopAnalyzer(c.logger.With("component", "analyzer"))
+	default:
+		// LLM backends not yet wired — fall back to rules for useful output.
+		c.logger.Warn("analyzer backend not yet wired, using rules",
+			"configured_backend", c.config.Analyzer.Backend)
+		activeAnalyzer, err = analyzer.NewRulesAnalyzer(c.logger.With("component", "analyzer"))
+	}
 	if err != nil {
-		return fmt.Errorf("controller: creating noop analyzer: %w", err)
+		return fmt.Errorf("controller: creating analyzer: %w", err)
 	}
 
 	// 6. Create the pipeline with all subsystems wired.
@@ -265,7 +296,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		pipelineCfg,
 		pipeline.WithMetrics(c.metrics),
 		pipeline.WithLogger(c.logger.With("component", "pipeline")),
-		pipeline.WithAnalyzer(noopAnalyzer),
+		pipeline.WithAnalyzer(activeAnalyzer),
 		pipeline.WithFilter(filterEng),
 		pipeline.WithSinks(activeSinks),
 	)
@@ -367,7 +398,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		detBridge.RunPeriodicScan(ctx, 30*time.Second)
+		detBridge.RunPeriodicScan(ctx, c.config.ControllerTuning.DetectorScanInterval)
 	}()
 
 	// Shard follower sync: all replicas periodically read the shard map

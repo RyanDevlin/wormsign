@@ -207,6 +207,12 @@ func Default() *Config {
 		Health: HealthConfig{
 			Port: 8081,
 		},
+
+		ControllerTuning: ControllerTuningConfig{
+			DetectorScanInterval:   30 * time.Second,
+			ShardReconcileInterval: 30 * time.Second,
+			InformerResyncPeriod:   30 * time.Minute,
+		},
 	}
 }
 
@@ -328,6 +334,17 @@ func (c *Config) ApplyDefaults() {
 	// Health
 	if c.Health.Port == 0 {
 		c.Health.Port = d.Health.Port
+	}
+
+	// Controller tuning
+	if c.ControllerTuning.DetectorScanInterval == 0 {
+		c.ControllerTuning.DetectorScanInterval = d.ControllerTuning.DetectorScanInterval
+	}
+	if c.ControllerTuning.ShardReconcileInterval == 0 {
+		c.ControllerTuning.ShardReconcileInterval = d.ControllerTuning.ShardReconcileInterval
+	}
+	if c.ControllerTuning.InformerResyncPeriod == 0 {
+		c.ControllerTuning.InformerResyncPeriod = d.ControllerTuning.InformerResyncPeriod
 	}
 
 	// Sinks — apply default severity filters if enabled but not configured

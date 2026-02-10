@@ -550,6 +550,10 @@ metrics:
     interval: 30s
 health:
   port: 8081
+controllerTuning:
+  detectorScanInterval: 30s
+  shardReconcileInterval: 30s
+  informerResyncPeriod: 30m
 `
 	cfg, err := Load(strings.NewReader(yaml))
 	if err != nil {

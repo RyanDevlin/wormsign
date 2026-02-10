@@ -36,7 +36,7 @@ func TestE2E_MultiReplica(t *testing.T) {
 	t.Run("ShardDistribution", func(t *testing.T) {
 		// Wait for shard map to have 3 entries.
 		var sm *shardMapData
-		pollUntil(t, 120*time.Second, 5*time.Second, "shard map with 3 entries", func() (bool, error) {
+		pollUntil(t, 60*time.Second, 3*time.Second, "shard map with 3 entries", func() (bool, error) {
 			sm = getShardMap(t, ctrlNs)
 			return sm != nil && len(sm.Assignments) == 3, nil
 		})
@@ -69,7 +69,7 @@ func TestE2E_MultiReplica(t *testing.T) {
 		faultNs3 := createTestNamespace(t, "shard-c")
 
 		// Wait for new namespaces to appear in the shard map (next reconcile cycle).
-		pollUntil(t, 120*time.Second, 5*time.Second, "new namespaces in shard map", func() (bool, error) {
+		pollUntil(t, 60*time.Second, 3*time.Second, "new namespaces in shard map", func() (bool, error) {
 			sm := getShardMap(t, ctrlNs)
 			if sm == nil {
 				return false, nil
@@ -101,7 +101,7 @@ func TestE2E_MultiReplica(t *testing.T) {
 			tc := tc
 			t.Run("ns="+tc.ns, func(t *testing.T) {
 				t.Parallel()
-				waitForWormsignEvent(t, tc.ns, tc.pod, 5*time.Minute)
+				waitForWormsignEvent(t, tc.ns, tc.pod, 2*time.Minute)
 				t.Logf("WormsignRCA event detected in %s for pod %s", tc.ns, tc.pod)
 			})
 		}

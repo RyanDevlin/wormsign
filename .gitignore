@@ -1,0 +1,42 @@
+# Compiled binaries
+main
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.tgz
+
+# Docker image exports
+wormsign-controller-*.tar
+
+# Test binary, built with `go test -c`
+*.test
+
+# Go workspace
+go.work
+go.work.sum
+
+# Output of go coverage
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+__debug_bin*
+
+# Temporary files
+/tmp/

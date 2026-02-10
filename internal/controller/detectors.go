@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,10 +35,17 @@ type detectorBridge struct {
 	pipeline *pipeline.Pipeline
 	imr      *shard.InformerManager
 
-	crashLoop    *detector.PodCrashLoop
-	podFailed    *detector.PodFailed
-	stuckPending *detector.PodStuckPending
-	jobDeadline  *detector.JobDeadlineExceeded
+	crashLoop       *detector.PodCrashLoop
+	podFailed       *detector.PodFailed
+	stuckPending    *detector.PodStuckPending
+	jobDeadline     *detector.JobDeadlineExceeded
+	pvcStuckBinding *detector.PVCStuckBinding
+
+	// resourceCache stores recently-seen Kubernetes objects keyed by UID.
+	// Used in the callback to enrich FaultEvent annotations with correlation
+	// metadata (node-name, owner-deployment) and to propagate resource
+	// annotations to the filter engine.
+	resourceCache sync.Map // map[string]interface{} — UID → *corev1.Pod or *corev1.PersistentVolumeClaim
 
 	// Track namespaces we've already wired up to avoid double-registration.
 	mu              sync.Mutex
@@ -60,7 +68,9 @@ func newDetectorBridge(
 		wiredNamespaces: make(map[string]bool),
 	}
 
-	// Common callback: detector emits FaultEvent → pipeline.SubmitFaultEvent
+	// Common callback: detector emits FaultEvent → pipeline.SubmitFaultEvent.
+	// Enriches events with correlation annotations and propagates resource
+	// annotations to the filter engine for annotation-based exclusion.
 	cb := func(event *model.FaultEvent) {
 		input := filter.FilterInput{
 			DetectorName: event.DetectorName,
@@ -71,7 +81,34 @@ func newDetectorBridge(
 				UID:       event.Resource.UID,
 				Labels:    event.Labels,
 			},
+			Namespace: filter.NamespaceMeta{
+				Name: event.Resource.Namespace,
+			},
 		}
+
+		// Look up cached resource to enrich annotations.
+		if cached, ok := bridge.resourceCache.Load(event.Resource.UID); ok {
+			switch obj := cached.(type) {
+			case *corev1.Pod:
+				// Propagate pod annotations to filter input (enables Level 7
+				// wormsign.io/exclude-detectors evaluation).
+				input.Resource.Annotations = obj.Annotations
+
+				// Enrich fault event with correlation annotations.
+				if event.Annotations == nil {
+					event.Annotations = make(map[string]string)
+				}
+				if obj.Spec.NodeName != "" {
+					event.Annotations["wormsign.io/node-name"] = obj.Spec.NodeName
+				}
+				if deployName := resolveOwnerDeployment(obj); deployName != "" {
+					event.Annotations["wormsign.io/owner-deployment"] = deployName
+				}
+			case *corev1.PersistentVolumeClaim:
+				input.Resource.Annotations = obj.Annotations
+			}
+		}
+
 		p.SubmitFaultEvent(event, input)
 	}
 
@@ -132,6 +169,19 @@ func newDetectorBridge(
 		bridge.jobDeadline = d
 	}
 
+	if dc.PVCStuckBinding.Enabled {
+		d, err := detector.NewPVCStuckBinding(detector.PVCStuckBindingConfig{
+			Threshold: dc.PVCStuckBinding.Threshold,
+			Cooldown:  dc.PVCStuckBinding.Cooldown,
+			Callback:  cb,
+			Logger:    logger.With("detector", "PVCStuckBinding"),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating PVCStuckBinding detector: %w", err)
+		}
+		bridge.pvcStuckBinding = d
+	}
+
 	count := 0
 	if bridge.crashLoop != nil {
 		count++
@@ -143,6 +193,9 @@ func newDetectorBridge(
 		count++
 	}
 	if bridge.jobDeadline != nil {
+		count++
+	}
+	if bridge.pvcStuckBinding != nil {
 		count++
 	}
 
@@ -163,6 +216,9 @@ func (b *detectorBridge) DetectorCount() int {
 		count++
 	}
 	if b.jobDeadline != nil {
+		count++
+	}
+	if b.pvcStuckBinding != nil {
 		count++
 	}
 	return count
@@ -247,10 +303,36 @@ func (b *detectorBridge) wireNamespace(ns string, factory informers.SharedInform
 		factory.Start(make(chan struct{}))
 		b.logger.Debug("job informer wired", "namespace", ns)
 	}
+
+	// Wire PVC informer for PVCStuckBinding detector.
+	if b.pvcStuckBinding != nil {
+		pvcInformer := factory.Core().V1().PersistentVolumeClaims().Informer()
+		pvcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				pvc, ok := obj.(*corev1.PersistentVolumeClaim)
+				if !ok {
+					return
+				}
+				b.checkPVC(pvc)
+			},
+			UpdateFunc: func(_, newObj interface{}) {
+				pvc, ok := newObj.(*corev1.PersistentVolumeClaim)
+				if !ok {
+					return
+				}
+				b.checkPVC(pvc)
+			},
+		})
+		factory.Start(make(chan struct{}))
+		b.logger.Debug("pvc informer wired", "namespace", ns)
+	}
 }
 
 // checkPod runs all pod-related detectors against a pod object.
 func (b *detectorBridge) checkPod(pod *corev1.Pod) {
+	// Cache the pod so the callback can enrich annotations.
+	b.resourceCache.Store(string(pod.UID), pod)
+
 	if b.crashLoop != nil {
 		state := toCrashLoopState(pod)
 		b.crashLoop.Check(state)
@@ -265,6 +347,17 @@ func (b *detectorBridge) checkPod(pod *corev1.Pod) {
 		state := toPendingState(pod)
 		b.stuckPending.Check(state)
 	}
+}
+
+// checkPVC runs the PVCStuckBinding detector against a PVC object.
+func (b *detectorBridge) checkPVC(pvc *corev1.PersistentVolumeClaim) {
+	if b.pvcStuckBinding == nil {
+		return
+	}
+	// Cache the PVC so the callback can propagate annotations.
+	b.resourceCache.Store(string(pvc.UID), pvc)
+	state := toPVCState(pvc)
+	b.pvcStuckBinding.Check(state)
 }
 
 // checkJob runs the JobDeadlineExceeded detector against a job object.
@@ -292,6 +385,7 @@ func (b *detectorBridge) RunPeriodicScan(ctx context.Context, interval time.Dura
 			return
 		case <-ticker.C:
 			b.scanPendingPods()
+			b.scanPendingPVCs()
 		}
 	}
 }
@@ -327,6 +421,41 @@ func (b *detectorBridge) scanPendingPods() {
 			if pod.Status.Phase == corev1.PodPending {
 				state := toPendingState(pod)
 				b.stuckPending.Check(state)
+			}
+		}
+	}
+}
+
+// scanPendingPVCs lists PVCs from all wired namespace informers and checks
+// them against the PVCStuckBinding detector.
+func (b *detectorBridge) scanPendingPVCs() {
+	if b.pvcStuckBinding == nil {
+		return
+	}
+
+	b.mu.Lock()
+	namespaces := make([]string, 0, len(b.wiredNamespaces))
+	for ns := range b.wiredNamespaces {
+		namespaces = append(namespaces, ns)
+	}
+	b.mu.Unlock()
+
+	for _, ns := range namespaces {
+		factory := b.imr.GetFactory(ns)
+		if factory == nil {
+			continue
+		}
+		pvcs, err := factory.Core().V1().PersistentVolumeClaims().Lister().List(labels.Everything())
+		if err != nil {
+			b.logger.Error("failed to list PVCs for periodic scan",
+				"namespace", ns,
+				"error", err,
+			)
+			continue
+		}
+		for _, pvc := range pvcs {
+			if pvc.Status.Phase == corev1.ClaimPending {
+				b.checkPVC(pvc)
 			}
 		}
 	}
@@ -422,9 +551,41 @@ func toJobState(job *batchv1.Job) detector.JobState {
 	return state
 }
 
+func toPVCState(pvc *corev1.PersistentVolumeClaim) detector.PVCState {
+	state := detector.PVCState{
+		Name:              pvc.Name,
+		Namespace:         pvc.Namespace,
+		UID:               string(pvc.UID),
+		Phase:             string(pvc.Status.Phase),
+		CreationTimestamp: pvc.CreationTimestamp.Time,
+		Labels:            pvc.Labels,
+		Annotations:       pvc.Annotations,
+	}
+	if pvc.Spec.StorageClassName != nil {
+		state.StorageClassName = *pvc.Spec.StorageClassName
+	}
+	return state
+}
+
 func waitingReason(cs corev1.ContainerStatus) string {
 	if cs.State.Waiting != nil {
 		return cs.State.Waiting.Reason
+	}
+	return ""
+}
+
+// resolveOwnerDeployment walks a pod's ownerReferences to find the owning
+// Deployment name. Kubernetes Deployments create ReplicaSets named
+// "<deployment>-<pod-template-hash>", so we strip the last hyphen-delimited
+// segment to recover the Deployment name.
+func resolveOwnerDeployment(pod *corev1.Pod) string {
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "ReplicaSet" {
+			idx := strings.LastIndex(ref.Name, "-")
+			if idx > 0 {
+				return ref.Name[:idx]
+			}
+		}
 	}
 	return ""
 }

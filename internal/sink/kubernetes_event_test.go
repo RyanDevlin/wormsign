@@ -3,6 +3,7 @@ package sink
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -115,6 +116,50 @@ func TestKubernetesEventSink_Deliver_FaultEvent(t *testing.T) {
 	if event.Source.Component != eventSource {
 		t.Errorf("Source.Component = %q, want %q", event.Source.Component, eventSource)
 	}
+
+	// Verify labels.
+	if event.Labels["wormsign.io/category"] != "resources" {
+		t.Errorf("label category = %q, want resources", event.Labels["wormsign.io/category"])
+	}
+	if event.Labels["wormsign.io/severity"] != "critical" {
+		t.Errorf("label severity = %q, want critical", event.Labels["wormsign.io/severity"])
+	}
+	if event.Labels["wormsign.io/detector"] != "PodFailed" {
+		t.Errorf("label detector = %q, want PodFailed", event.Labels["wormsign.io/detector"])
+	}
+	if event.Labels["wormsign.io/systemic"] != "false" {
+		t.Errorf("label systemic = %q, want false", event.Labels["wormsign.io/systemic"])
+	}
+
+	// Verify annotations.
+	if event.Annotations["wormsign.io/fault-event-id"] != "test-event-123" {
+		t.Errorf("annotation fault-event-id = %q, want test-event-123", event.Annotations["wormsign.io/fault-event-id"])
+	}
+	if event.Annotations["wormsign.io/confidence"] != "0.95" {
+		t.Errorf("annotation confidence = %q, want 0.95", event.Annotations["wormsign.io/confidence"])
+	}
+	if event.Annotations["wormsign.io/analyzer"] != "claude" {
+		t.Errorf("annotation analyzer = %q, want claude", event.Annotations["wormsign.io/analyzer"])
+	}
+	if event.Annotations["wormsign.io/remediation"] == "" {
+		t.Error("annotation remediation should not be empty")
+	}
+
+	// Verify additional event fields.
+	if event.Action != "Analyzed" {
+		t.Errorf("Action = %q, want Analyzed", event.Action)
+	}
+	if event.ReportingController != eventSource {
+		t.Errorf("ReportingController = %q, want %q", event.ReportingController, eventSource)
+	}
+	if event.ReportingInstance == "" {
+		t.Error("ReportingInstance should not be empty")
+	}
+
+	// Verify message includes blast radius (testReport has non-empty BlastRadius).
+	if !strings.Contains(event.Message, "—") {
+		t.Errorf("message should contain blast radius separator, got %q", event.Message)
+	}
 }
 
 func TestKubernetesEventSink_Deliver_SuperEvent(t *testing.T) {
@@ -216,6 +261,32 @@ func TestKubernetesEventSink_TargetResources_EmptyReport(t *testing.T) {
 	refs := s.targetResources(report)
 	if refs != nil {
 		t.Errorf("expected nil refs for empty report, got %v", refs)
+	}
+}
+
+func TestKubernetesEventSink_Deliver_NoBlastRadius(t *testing.T) {
+	cs := fakeClientWithGenerateName()
+	s, _ := NewKubernetesEventSink(cs, KubernetesEventConfig{}, silentLogger())
+	s.retryCfg = retryConfig{maxAttempts: 1, baseDelay: 0, multiplier: 1}
+
+	report := testReport()
+	report.BlastRadius = "" // No blast radius → no trailing dash.
+
+	err := s.Deliver(context.Background(), report)
+	if err != nil {
+		t.Fatalf("Deliver() error = %v", err)
+	}
+
+	events, _ := cs.CoreV1().Events("default").List(context.Background(), metav1.ListOptions{})
+	if len(events.Items) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events.Items))
+	}
+	msg := events.Items[0].Message
+	if strings.HasSuffix(msg, "—") || strings.HasSuffix(msg, "— ") {
+		t.Errorf("message should not have trailing dash when BlastRadius is empty, got %q", msg)
+	}
+	if !strings.HasPrefix(msg, "[resources]") {
+		t.Errorf("message should start with category, got %q", msg)
 	}
 }
 

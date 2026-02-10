@@ -50,6 +50,11 @@ type Config struct {
 
 	// Health configures the health probe port.
 	Health HealthConfig `yaml:"health"`
+
+	// ControllerTuning configures internal controller timing intervals.
+	// Lower values make the controller react faster (useful for testing)
+	// but increase API server load.
+	ControllerTuning ControllerTuningConfig `yaml:"controllerTuning"`
 }
 
 // ResourceRequirements holds CPU and memory values for requests or limits.
@@ -357,4 +362,15 @@ type ServiceMonitorConfig struct {
 // HealthConfig configures the health probe endpoint.
 type HealthConfig struct {
 	Port int `yaml:"port"`
+}
+
+// ControllerTuningConfig holds internal timing intervals for the controller.
+type ControllerTuningConfig struct {
+	// DetectorScanInterval is how often time-based detectors are scanned.
+	DetectorScanInterval time.Duration `yaml:"detectorScanInterval"`
+	// ShardReconcileInterval is how often the shard coordinator/follower
+	// re-evaluates namespace assignments.
+	ShardReconcileInterval time.Duration `yaml:"shardReconcileInterval"`
+	// InformerResyncPeriod is the resync period for per-namespace informers.
+	InformerResyncPeriod time.Duration `yaml:"informerResyncPeriod"`
 }

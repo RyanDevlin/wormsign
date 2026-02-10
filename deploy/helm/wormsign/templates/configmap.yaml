@@ -192,3 +192,8 @@ data:
 
     health:
       port: {{ .Values.health.port }}
+
+    controllerTuning:
+      detectorScanInterval: {{ .Values.controllerTuning.detectorScanInterval | quote }}
+      shardReconcileInterval: {{ .Values.controllerTuning.shardReconcileInterval | quote }}
+      informerResyncPeriod: {{ .Values.controllerTuning.informerResyncPeriod | quote }}
