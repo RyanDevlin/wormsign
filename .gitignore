@@ -41,3 +41,6 @@ __debug_bin*
 
 # Temporary files
 /tmp/
+
+# Private planning docs
+PROJECT_PLAN.md
